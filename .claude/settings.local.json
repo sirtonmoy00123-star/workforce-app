@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(curl -s -X POST http://localhost:3000/api/auth/setup-admin -H 'Content-Type: application/json' -d '{\"email\":\"tonmoy0024@gmail.com\",\"password\":\"Admin123!\",\"fullName\":\"Tonmoy \\(Admin\\)\"}')",
+      "Bash(node -e ' *)",
+      "Bash(mkdir -p \"C:/tonmoy/App/V1 App/src/app/employee/start-shift/[id]\")",
+      "Bash(mkdir -p \"C:/tonmoy/App/V1 App/src/app/employee/finish-shift/[id]\")",
+      "Bash(mkdir -p \"C:/tonmoy/App/V1 App/src/app/api/timesheets/[id]\")",
+      "Bash(mkdir -p \"C:/tonmoy/App/V1 App/src/app/admin/timesheets/[id]\")",
+      "Bash(mkdir -p \"C:/tonmoy/App/V1 App/src/app/api/payments/[id]\")",
+      "Bash(mkdir -p \"C:/tonmoy/App/V1 App/src/app/admin/payments/[id]\")",
+      "Bash(curl -s -X POST https://rqnevhgkfvkmspmtnera.supabase.co/rest/v1/rpc -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxbmV2aGdrZnZrbXNwbXRuZXJhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NjY0ODM5NiwiZXhwIjoyMTAyMjI0Mzk2fQ.NNPUI7Dx3g1vGqwM1DOqH8F2li1wSLTpsuVwb4VKXLs' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxbmV2aGdrZnZrbXNwbXRuZXJhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NjY0ODM5NiwiZXhwIjoyMTAyMjI0Mzk2fQ.NNPUI7Dx3g1vGqwM1DOqH8F2li1wSLTpsuVwb4VKXLs' -H 'Content-Type: application/json' -d '{\"query\": \"CREATE TYPE public.recurrence_type AS ENUM \\('\\\\''NONE'\\\\'', '\\\\''NEXT_WEEK'\\\\'', '\\\\''WEEKLY_END_OF_MONTH'\\\\'', '\\\\''WEEKLY_CUSTOM_END'\\\\''\\); ALTER TABLE public.shifts ADD COLUMN recurring_group_id UUID, ADD COLUMN is_recurring BOOLEAN NOT NULL DEFAULT false, ADD COLUMN recurrence_type public.recurrence_type NOT NULL DEFAULT '\\\\''NONE'\\\\'', ADD COLUMN recurrence_end_date DATE; CREATE INDEX idx_shifts_recurring_group ON public.shifts\\(recurring_group_id\\) WHERE recurring_group_id IS NOT NULL;\"}')",
+      "Bash(curl -s -X POST https://rqnevhgkfvkmspmtnera.supabase.co/pg -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxbmV2aGdrZnZrbXNwbXRuZXJhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NjY0ODM5NiwiZXhwIjoyMTAyMjI0Mzk2fQ.NNPUI7Dx3g1vGqwM1DOqH8F2li1wSLTpsuVwb4VKXLs' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxbmV2aGdrZnZrbXNwbXRuZXJhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NjY0ODM5NiwiZXhwIjoyMTAyMjI0Mzk2fQ.NNPUI7Dx3g1vGqwM1DOqH8F2li1wSLTpsuVwb4VKXLs' -H 'Content-Type: application/json' -d '{\"query\": \"SELECT 1\"}')",
+      "Bash(curl -s -X POST https://rqnevhgkfvkmspmtnera.supabase.co/rest/v1/rpc/exec_sql -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxbmV2aGdrZnZrbXNwbXRuZXJhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NjY0ODM5NiwiZXhwIjoyMTAyMjI0Mzk2fQ.NNPUI7Dx3g1vGqwM1DOqH8F2li1wSLTpsuVwb4VKXLs' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxbmV2aGdrZnZrbXNwbXRuZXJhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NjY0ODM5NiwiZXhwIjoyMTAyMjI0Mzk2fQ.NNPUI7Dx3g1vGqwM1DOqH8F2li1wSLTpsuVwb4VKXLs' -H 'Content-Type: application/json' -d '{\"sql\": \"SELECT 1 as test\"}')"
+    ]
+  }
+}

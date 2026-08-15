@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
 
     const adminClient = createAdminClient();
     const searchParams = request.nextUrl.searchParams;
-    const statusFilter = searchParams.get("status"); // "submitted", "approved", "needs_correction"
+    const statusFilter = searchParams.get("status") as "submitted" | "approved" | "needs_correction" | null;
 
     if (appUser.role === "admin") {
       // Admin: get all timesheets for employees in their business

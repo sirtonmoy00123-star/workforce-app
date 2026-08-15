@@ -145,7 +145,7 @@ async function handleCreate(body: any, appUser: any) {
   const recurringGroupId = isRecurring ? crypto.randomUUID() : null;
 
   // Build the list of shifts to insert
-  const shiftsToInsert: Array<{
+  type ShiftInsert = {
     business_id: string;
     employee_id: string;
     date: string;
@@ -153,15 +153,14 @@ async function handleCreate(body: any, appUser: any) {
     scheduled_finish: string;
     location: string | null;
     instructions: string | null;
-    status: string;
+    status: "pending" | "accepted" | "declined" | "completed" | "cancelled";
     recurring_group_id: string | null;
     is_recurring: boolean;
-    recurrence_type: string;
+    recurrence_type: "NONE" | "NEXT_WEEK" | "WEEKLY_END_OF_MONTH" | "WEEKLY_CUSTOM_END";
     recurrence_end_date: string | null;
     created_by: string;
-  }> = [];
-
-  const shiftStatus = saveAsDraft ? "pending" : "pending"; // both are "pending" — draft just doesn't notify
+  };
+  const shiftsToInsert: ShiftInsert[] = [];
 
   for (let dateIdx = 0; dateIdx < dates.length; dateIdx++) {
     const shiftDate = dates[dateIdx];
@@ -195,10 +194,10 @@ async function handleCreate(body: any, appUser: any) {
         scheduled_finish: endISO,
         location: location || null,
         instructions: instructions || null,
-        status: shiftStatus,
+        status: "pending" as const,
         recurring_group_id: recurringGroupId,
         is_recurring: isRecurring,
-        recurrence_type: recurrenceType,
+        recurrence_type: recurrenceType as "NONE" | "NEXT_WEEK" | "WEEKLY_END_OF_MONTH" | "WEEKLY_CUSTOM_END",
         recurrence_end_date: customEndDate || null,
         created_by: appUser.id,
       });

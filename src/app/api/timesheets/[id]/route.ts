@@ -105,17 +105,18 @@ export async function PUT(
 
     const adminClient = createAdminClient();
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: timesheet } = await adminClient
       .from("timesheets")
-      .select("*, employees!inner(business_id)")
+      .select("*")
       .eq("id", id)
-      .single();
+      .single() as { data: any };
 
     if (!timesheet) {
       return NextResponse.json({ error: "Timesheet not found" }, { status: 404 });
     }
 
-    // Use a simpler check — get the employee's business_id
+    // Get the employee's business_id
     const { data: employee } = await adminClient
       .from("employees")
       .select("business_id")

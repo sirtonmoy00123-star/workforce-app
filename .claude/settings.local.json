@@ -18,7 +18,8 @@
       "Bash(git commit -m 'Fix TypeScript build errors for Vercel deployment *)",
       "Bash(git push *)",
       "Bash(git config *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(npx next *)"
     ]
   }
 }

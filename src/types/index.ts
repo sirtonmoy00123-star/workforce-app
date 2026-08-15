@@ -12,6 +12,7 @@ export enum ShiftStatus {
   Declined = "declined",
   Completed = "completed",
   Cancelled = "cancelled",
+  UpdatedPending = "updated_pending",
 }
 
 export enum AttendanceStatus {

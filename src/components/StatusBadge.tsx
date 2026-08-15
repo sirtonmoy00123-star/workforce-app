@@ -9,6 +9,7 @@ const colors: Record<string, string> = {
   working: "bg-purple-100 text-purple-700",
   completed: "bg-green-100 text-green-700",
   cancelled: "bg-gray-100 text-gray-500",
+  updated_pending: "bg-amber-100 text-amber-700",
   submitted: "bg-yellow-100 text-yellow-700",
   approved: "bg-green-100 text-green-700",
   needs_correction: "bg-orange-100 text-orange-700",

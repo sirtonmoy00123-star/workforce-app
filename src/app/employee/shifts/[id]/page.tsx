@@ -72,7 +72,7 @@ export default function ShiftDetailPage() {
       });
   }, [id]);
 
-  async function handleAction(action: "accept" | "decline") {
+  async function handleAction(action: "accept" | "decline" | "accept_updated") {
     setActing(true);
     setError("");
     try {
@@ -181,6 +181,39 @@ export default function ShiftDetailPage() {
             >
               {acting ? "…" : "Decline"}
             </button>
+          </div>
+        )}
+
+        {/* Updated shift — requires reconfirmation */}
+        {shift.status === "updated_pending" && (
+          <div className="mt-6">
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-amber-600 text-lg">⚠️</span>
+                <span className="font-bold text-amber-800">Shift Changed</span>
+              </div>
+              <p className="text-sm text-amber-700">
+                Your admin has updated this shift. Please review the new details above and confirm.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => handleAction("accept_updated")}
+                disabled={acting}
+                className="flex-1 bg-green-600 text-white rounded-lg py-2.5 text-sm font-medium
+                           hover:bg-green-700 disabled:opacity-50 transition-colors"
+              >
+                {acting ? "…" : "Accept Updated Shift"}
+              </button>
+              <button
+                onClick={() => handleAction("decline")}
+                disabled={acting}
+                className="flex-1 bg-red-600 text-white rounded-lg py-2.5 text-sm font-medium
+                           hover:bg-red-700 disabled:opacity-50 transition-colors"
+              >
+                {acting ? "…" : "Decline"}
+              </button>
+            </div>
           </div>
         )}
 

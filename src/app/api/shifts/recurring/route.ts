@@ -153,7 +153,7 @@ async function handleCreate(body: any, appUser: any) {
     scheduled_finish: string;
     location: string | null;
     instructions: string | null;
-    status: "pending" | "accepted" | "declined" | "completed" | "cancelled";
+    status: "pending" | "accepted" | "declined" | "completed" | "cancelled" | "updated_pending";
     recurring_group_id: string | null;
     is_recurring: boolean;
     recurrence_type: "NONE" | "NEXT_WEEK" | "WEEKLY_END_OF_MONTH" | "WEEKLY_CUSTOM_END";

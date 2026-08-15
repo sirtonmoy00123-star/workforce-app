@@ -13,6 +13,8 @@ const colors: Record<string, string> = {
   submitted: "bg-yellow-100 text-yellow-700",
   approved: "bg-green-100 text-green-700",
   needs_correction: "bg-orange-100 text-orange-700",
+  correction_required: "bg-orange-100 text-orange-700",
+  correction_submitted: "bg-blue-100 text-blue-700",
   unpaid: "bg-red-100 text-red-700",
   paid: "bg-green-100 text-green-700",
   estimated: "bg-yellow-100 text-yellow-700",

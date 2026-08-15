@@ -62,8 +62,9 @@ export default function AdminTimesheetsPage() {
         {[
           { key: "all", label: "All" },
           { key: "submitted", label: "Pending Review" },
+          { key: "correction_submitted", label: "Correction Submitted" },
+          { key: "correction_required", label: "Awaiting Correction" },
           { key: "approved", label: "Approved" },
-          { key: "needs_correction", label: "Needs Correction" },
         ].map((tab) => (
           <button
             key={tab.key}

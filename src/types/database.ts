@@ -266,7 +266,7 @@ export type Database = {
           mileage_amount: number;
           estimated_total: number;
           approved_total: number | null;
-          status: "submitted" | "approved" | "needs_correction";
+          status: "submitted" | "approved" | "needs_correction" | "correction_required" | "correction_submitted";
           approved_by: string | null;
           approved_at: string | null;
           created_at: string;
@@ -289,7 +289,7 @@ export type Database = {
           mileage_amount: number;
           estimated_total: number;
           approved_total?: number | null;
-          status?: "submitted" | "approved" | "needs_correction";
+          status?: "submitted" | "approved" | "needs_correction" | "correction_required" | "correction_submitted";
           approved_by?: string | null;
           approved_at?: string | null;
           created_at?: string;
@@ -312,7 +312,7 @@ export type Database = {
           mileage_amount?: number;
           estimated_total?: number;
           approved_total?: number | null;
-          status?: "submitted" | "approved" | "needs_correction";
+          status?: "submitted" | "approved" | "needs_correction" | "correction_required" | "correction_submitted";
           approved_by?: string | null;
           approved_at?: string | null;
           created_at?: string;
@@ -377,7 +377,7 @@ export type Database = {
       shift_status: "pending" | "accepted" | "declined" | "completed" | "cancelled" | "updated_pending";
       attendance_status: "pending" | "working" | "completed";
       submission_type: "START" | "FINISH";
-      timesheet_status: "submitted" | "approved" | "needs_correction";
+      timesheet_status: "submitted" | "approved" | "needs_correction" | "correction_required" | "correction_submitted";
       payment_status: "unpaid" | "paid";
       recurrence_type: "NONE" | "NEXT_WEEK" | "WEEKLY_END_OF_MONTH" | "WEEKLY_CUSTOM_END";
     };

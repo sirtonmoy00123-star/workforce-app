@@ -141,10 +141,20 @@ export async function PUT(
         .eq("id", id);
 
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+      // If there's a pending or submitted correction, mark it approved too
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (adminClient as any)
+        .from("timesheet_corrections")
+        .update({ status: "approved", updated_at: new Date().toISOString() })
+        .eq("timesheet_id", id)
+        .in("status", ["pending", "submitted"]);
+
       return NextResponse.json({ success: true, status: "approved" });
     }
 
     if (action === "needs_correction") {
+      // Legacy simple needs_correction (without the new correction workflow)
       const { error } = await adminClient
         .from("timesheets")
         .update({

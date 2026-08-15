@@ -30,6 +30,8 @@ export enum TimesheetStatus {
   Submitted = "submitted",
   Approved = "approved",
   NeedsCorrection = "needs_correction",
+  CorrectionRequired = "correction_required",
+  CorrectionSubmitted = "correction_submitted",
 }
 
 export enum PaymentStatus {

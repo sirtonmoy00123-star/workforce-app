@@ -35,6 +35,41 @@ interface TimesheetDetail {
   }>;
 }
 
+interface CorrectionRecord {
+  id: string;
+  correction_round: number;
+  requested_fields: string[];
+  admin_note: string;
+  original_values: Record<string, unknown>;
+  corrected_values: Record<string, unknown> | null;
+  recalculated_values: Record<string, unknown> | null;
+  employee_note: string | null;
+  requested_at: string;
+  submitted_at: string | null;
+  status: string;
+}
+
+// Field labels for display
+const FIELD_LABELS: Record<string, string> = {
+  actual_start: "Start time",
+  actual_finish: "Finish time",
+  start_odometer: "Starting odometer",
+  finish_odometer: "Ending odometer",
+  start_photo: "Starting odometer photo",
+  finish_photo: "Ending odometer photo",
+  other: "Other",
+};
+
+const CORRECTABLE_FIELDS = [
+  { key: "actual_start", label: "Start time" },
+  { key: "actual_finish", label: "Finish time" },
+  { key: "start_odometer", label: "Starting odometer" },
+  { key: "finish_odometer", label: "Ending odometer" },
+  { key: "start_photo", label: "Starting odometer photo" },
+  { key: "finish_photo", label: "Ending odometer photo" },
+  { key: "other", label: "Other" },
+];
+
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString("en-AU", {
     hour: "numeric",
@@ -64,26 +99,52 @@ export default function AdminTimesheetDetailPage() {
   const id = params.id as string;
 
   const [timesheet, setTimesheet] = useState<TimesheetDetail | null>(null);
+  const [corrections, setCorrections] = useState<CorrectionRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  // Correction modal state
+  const [showCorrectionModal, setShowCorrectionModal] = useState(false);
+  const [selectedFields, setSelectedFields] = useState<string[]>([]);
+  const [adminNote, setAdminNote] = useState("");
+  const [correctionError, setCorrectionError] = useState("");
+
+  // Correction history
+  const [showHistory, setShowHistory] = useState(false);
+
   useEffect(() => {
-    fetch(`/api/timesheets/${id}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.error) setError(data.error);
-        else setTimesheet(data);
-        setLoading(false);
-      })
-      .catch(() => {
-        setError("Failed to load timesheet.");
-        setLoading(false);
-      });
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  async function handleAction(action: "approve" | "needs_correction") {
+  async function loadData() {
+    setLoading(true);
+    try {
+      const tsRes = await fetch(`/api/timesheets/${id}`);
+      const tsData = await tsRes.json();
+
+      if (tsData.error) setError(tsData.error);
+      else setTimesheet(tsData);
+
+      // Corrections endpoint may 500 if migration not run yet — handle gracefully
+      try {
+        const corrRes = await fetch(`/api/timesheets/${id}/corrections`);
+        if (corrRes.ok) {
+          const corrData = await corrRes.json();
+          if (Array.isArray(corrData)) setCorrections(corrData);
+        }
+      } catch {
+        // Table may not exist yet — ignore
+      }
+    } catch {
+      setError("Failed to load timesheet.");
+    }
+    setLoading(false);
+  }
+
+  async function handleApprove() {
     setActing(true);
     setError("");
     setSuccess("");
@@ -91,14 +152,15 @@ export default function AdminTimesheetDetailPage() {
       const res = await fetch(`/api/timesheets/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ action: "approve" }),
       });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || "Action failed.");
       } else {
         setTimesheet((prev) => prev ? { ...prev, status: data.status } : prev);
-        setSuccess(action === "approve" ? "Timesheet approved!" : "Timesheet marked as needs correction.");
+        setSuccess("Timesheet approved!");
+        loadData();
       }
     } catch {
       setError("Something went wrong.");
@@ -106,8 +168,64 @@ export default function AdminTimesheetDetailPage() {
     setActing(false);
   }
 
+  function openCorrectionModal() {
+    setShowCorrectionModal(true);
+    setSelectedFields([]);
+    setAdminNote("");
+    setCorrectionError("");
+  }
+
+  function toggleField(field: string) {
+    setSelectedFields((prev) =>
+      prev.includes(field) ? prev.filter((f) => f !== field) : [...prev, field]
+    );
+  }
+
+  async function sendCorrectionRequest() {
+    setCorrectionError("");
+
+    if (selectedFields.length === 0) {
+      setCorrectionError("Select at least one problem field.");
+      return;
+    }
+    if (!adminNote.trim()) {
+      setCorrectionError("A note to the employee is required.");
+      return;
+    }
+
+    setActing(true);
+    try {
+      const res = await fetch(`/api/timesheets/${id}/corrections`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          requested_fields: selectedFields,
+          admin_note: adminNote,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCorrectionError(data.error || "Failed to send correction request.");
+      } else {
+        setShowCorrectionModal(false);
+        setSuccess(`Correction request sent (Round ${data.correction_round}).`);
+        loadData();
+      }
+    } catch {
+      setCorrectionError("Something went wrong.");
+    }
+    setActing(false);
+  }
+
   if (loading) return <div className="text-center py-12 text-gray-500">Loading…</div>;
   if (!timesheet) return <div className="text-center py-12 text-red-500">{error || "Timesheet not found."}</div>;
+
+  // Find the latest submitted correction for comparison
+  const latestSubmitted = corrections
+    .filter((c) => c.status === "submitted")
+    .sort((a, b) => b.correction_round - a.correction_round)[0] || null;
+
+  const showComparisonView = timesheet.status === "correction_submitted" && latestSubmitted;
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -133,7 +251,9 @@ export default function AdminTimesheetDetailPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">Timesheet Review</h1>
+            <h1 className="text-xl font-bold text-gray-900">
+              {showComparisonView ? "Timesheet Correction Review" : "Timesheet Review"}
+            </h1>
             <p className="text-sm text-gray-500">
               {timesheet.employee?.full_name} ({timesheet.employee?.employee_number})
             </p>
@@ -141,120 +261,410 @@ export default function AdminTimesheetDetailPage() {
           <StatusBadge status={timesheet.status} />
         </div>
 
-        {/* Shift Info */}
-        <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
-          <h2 className="font-semibold text-gray-900">Shift Details</h2>
-          <div className="flex justify-between">
-            <span className="text-gray-500">Date</span>
-            <span className="font-medium">{formatDateTime(timesheet.actual_start)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-500">Scheduled</span>
-            <span className="font-medium">
-              {formatTime(timesheet.scheduled_start)} – {formatTime(timesheet.scheduled_finish)}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-500">Actual</span>
-            <span className="font-medium">
-              {formatTime(timesheet.actual_start)} – {formatTime(timesheet.actual_finish)}
-            </span>
-          </div>
-          {timesheet.shift_location && (
-            <div className="flex justify-between">
-              <span className="text-gray-500">Location</span>
-              <span className="font-medium">{timesheet.shift_location}</span>
+        {/* ── Correction Comparison View ── */}
+        {showComparisonView && latestSubmitted && (
+          <>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-blue-600 text-lg">📝</span>
+                <span className="font-bold text-blue-800">
+                  Correction Submitted — Round {latestSubmitted.correction_round}
+                </span>
+              </div>
+              <p className="text-blue-700">
+                Review the employee&apos;s corrections below and approve or request changes again.
+              </p>
             </div>
-          )}
-        </div>
 
-        {/* Hours & Distance */}
-        <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
-          <h2 className="font-semibold text-gray-900">Hours & Distance</h2>
-          <div className="flex justify-between">
-            <span className="text-gray-500">Hours Worked</span>
-            <span className="font-medium">{formatDuration(timesheet.worked_minutes)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-500">Start Odometer</span>
-            <span className="font-medium">{timesheet.start_odometer.toLocaleString()} km</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-500">Finish Odometer</span>
-            <span className="font-medium">{timesheet.finish_odometer.toLocaleString()} km</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-500">Distance</span>
-            <span className="font-medium">{timesheet.distance_km} km</span>
-          </div>
-        </div>
-
-        {/* Payment Breakdown */}
-        <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
-          <h2 className="font-semibold text-gray-900">Payment Breakdown</h2>
-          <div className="flex justify-between">
-            <span className="text-gray-500">Rate</span>
-            <span className="font-medium">${timesheet.hourly_rate_snapshot.toFixed(2)}/hr</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-500">Wages</span>
-            <span className="font-medium">${timesheet.wage_amount.toFixed(2)}</span>
-          </div>
-          <hr className="my-1" />
-          <div className="flex justify-between">
-            <span className="text-gray-500">Mileage Rate</span>
-            <span className="font-medium">${timesheet.mileage_rate_snapshot.toFixed(2)}/km</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-500">Mileage</span>
-            <span className="font-medium">${timesheet.mileage_amount.toFixed(2)}</span>
-          </div>
-          <hr className="my-1" />
-          <div className="flex justify-between font-bold">
-            <span>Estimated Total</span>
-            <span className="text-green-600">${timesheet.estimated_total.toFixed(2)}</span>
-          </div>
-          {timesheet.approved_total !== null && (
-            <div className="flex justify-between font-bold">
-              <span>Approved Total</span>
-              <span className="text-blue-600">${timesheet.approved_total.toFixed(2)}</span>
+            {/* Before vs Corrected Table */}
+            <div className="bg-gray-50 rounded-lg p-4">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-gray-500 border-b border-gray-200">
+                      <th className="text-left py-2 pr-4 font-medium">Field</th>
+                      <th className="text-right py-2 px-2 font-medium">Before</th>
+                      <th className="text-right py-2 pl-2 font-medium">Corrected</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    <ComparisonRow
+                      label="Start time"
+                      before={formatTime(latestSubmitted.original_values.actual_start as string)}
+                      after={latestSubmitted.corrected_values?.actual_start
+                        ? formatTime(latestSubmitted.corrected_values.actual_start as string)
+                        : formatTime(latestSubmitted.original_values.actual_start as string)}
+                      changed={latestSubmitted.original_values.actual_start !== latestSubmitted.corrected_values?.actual_start}
+                    />
+                    <ComparisonRow
+                      label="Finish time"
+                      before={formatTime(latestSubmitted.original_values.actual_finish as string)}
+                      after={latestSubmitted.corrected_values?.actual_finish
+                        ? formatTime(latestSubmitted.corrected_values.actual_finish as string)
+                        : formatTime(latestSubmitted.original_values.actual_finish as string)}
+                      changed={latestSubmitted.original_values.actual_finish !== latestSubmitted.corrected_values?.actual_finish}
+                    />
+                    <ComparisonRow
+                      label="Start odometer"
+                      before={`${Number(latestSubmitted.original_values.start_odometer).toLocaleString()} km`}
+                      after={latestSubmitted.corrected_values?.start_odometer !== undefined
+                        ? `${Number(latestSubmitted.corrected_values.start_odometer).toLocaleString()} km`
+                        : `${Number(latestSubmitted.original_values.start_odometer).toLocaleString()} km`}
+                      changed={latestSubmitted.original_values.start_odometer !== latestSubmitted.corrected_values?.start_odometer}
+                    />
+                    <ComparisonRow
+                      label="Finish odometer"
+                      before={`${Number(latestSubmitted.original_values.finish_odometer).toLocaleString()} km`}
+                      after={latestSubmitted.corrected_values?.finish_odometer !== undefined
+                        ? `${Number(latestSubmitted.corrected_values.finish_odometer).toLocaleString()} km`
+                        : `${Number(latestSubmitted.original_values.finish_odometer).toLocaleString()} km`}
+                      changed={latestSubmitted.original_values.finish_odometer !== latestSubmitted.corrected_values?.finish_odometer}
+                    />
+                    <ComparisonRow
+                      label="Hours"
+                      before={formatDuration(latestSubmitted.original_values.worked_minutes as number)}
+                      after={latestSubmitted.recalculated_values
+                        ? formatDuration(latestSubmitted.recalculated_values.worked_minutes as number)
+                        : formatDuration(latestSubmitted.original_values.worked_minutes as number)}
+                      changed={latestSubmitted.original_values.worked_minutes !== latestSubmitted.recalculated_values?.worked_minutes}
+                    />
+                    <ComparisonRow
+                      label="Distance"
+                      before={`${latestSubmitted.original_values.distance_km} km`}
+                      after={latestSubmitted.recalculated_values
+                        ? `${latestSubmitted.recalculated_values.distance_km} km`
+                        : `${latestSubmitted.original_values.distance_km} km`}
+                      changed={latestSubmitted.original_values.distance_km !== latestSubmitted.recalculated_values?.distance_km}
+                    />
+                    <ComparisonRow
+                      label="Estimated pay"
+                      before={`$${Number(latestSubmitted.original_values.estimated_total).toFixed(2)}`}
+                      after={latestSubmitted.recalculated_values
+                        ? `$${Number(latestSubmitted.recalculated_values.estimated_total).toFixed(2)}`
+                        : `$${Number(latestSubmitted.original_values.estimated_total).toFixed(2)}`}
+                      changed={latestSubmitted.original_values.estimated_total !== latestSubmitted.recalculated_values?.estimated_total}
+                    />
+                  </tbody>
+                </table>
+              </div>
             </div>
-          )}
-        </div>
 
-        {/* Action buttons — only for submitted timesheets */}
-        {timesheet.status === "submitted" && (
-          <div className="flex gap-3">
-            <button
-              onClick={() => handleAction("approve")}
-              disabled={acting}
-              className="flex-1 bg-green-600 text-white rounded-lg py-3 text-sm font-bold
-                         hover:bg-green-700 disabled:opacity-50 transition-colors"
-            >
-              {acting ? "…" : "✅ Approve"}
-            </button>
-            <button
-              onClick={() => handleAction("needs_correction")}
-              disabled={acting}
-              className="flex-1 bg-orange-500 text-white rounded-lg py-3 text-sm font-bold
-                         hover:bg-orange-600 disabled:opacity-50 transition-colors"
-            >
-              {acting ? "…" : "⚠️ Needs Correction"}
-            </button>
-          </div>
+            {/* Employee note */}
+            {latestSubmitted.employee_note && (
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h3 className="text-sm font-semibold text-gray-700 mb-1">Employee Note</h3>
+                <p className="text-sm text-gray-600 italic">
+                  &ldquo;{latestSubmitted.employee_note}&rdquo;
+                </p>
+              </div>
+            )}
+
+            {/* Approve / Needs Correction Again */}
+            <div className="flex gap-3">
+              <button
+                onClick={openCorrectionModal}
+                disabled={acting}
+                className="flex-1 bg-orange-500 text-white rounded-lg py-3 text-sm font-bold
+                           hover:bg-orange-600 disabled:opacity-50 transition-colors"
+              >
+                {acting ? "…" : "⚠️ Needs Correction Again"}
+              </button>
+              <button
+                onClick={handleApprove}
+                disabled={acting}
+                className="flex-1 bg-green-600 text-white rounded-lg py-3 text-sm font-bold
+                           hover:bg-green-700 disabled:opacity-50 transition-colors"
+              >
+                {acting ? "…" : "✅ Approve Timesheet"}
+              </button>
+            </div>
+          </>
         )}
 
-        {timesheet.status === "approved" && (
-          <p className="text-center text-sm text-green-600 font-medium">
-            ✅ This timesheet has been approved.
-          </p>
+        {/* ── Normal Timesheet View (not comparison) ── */}
+        {!showComparisonView && (
+          <>
+            {/* Shift Info */}
+            <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
+              <h2 className="font-semibold text-gray-900">Shift Details</h2>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Date</span>
+                <span className="font-medium">{formatDateTime(timesheet.actual_start)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Scheduled</span>
+                <span className="font-medium">
+                  {formatTime(timesheet.scheduled_start)} – {formatTime(timesheet.scheduled_finish)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Actual</span>
+                <span className="font-medium">
+                  {formatTime(timesheet.actual_start)} – {formatTime(timesheet.actual_finish)}
+                </span>
+              </div>
+              {timesheet.shift_location && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Location</span>
+                  <span className="font-medium">{timesheet.shift_location}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Hours & Distance */}
+            <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
+              <h2 className="font-semibold text-gray-900">Hours & Distance</h2>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Hours Worked</span>
+                <span className="font-medium">{formatDuration(timesheet.worked_minutes)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Start Odometer</span>
+                <span className="font-medium">{timesheet.start_odometer.toLocaleString()} km</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Finish Odometer</span>
+                <span className="font-medium">{timesheet.finish_odometer.toLocaleString()} km</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Distance</span>
+                <span className="font-medium">{timesheet.distance_km} km</span>
+              </div>
+            </div>
+
+            {/* Payment Breakdown */}
+            <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
+              <h2 className="font-semibold text-gray-900">Payment Breakdown</h2>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Rate</span>
+                <span className="font-medium">${timesheet.hourly_rate_snapshot.toFixed(2)}/hr</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Wages</span>
+                <span className="font-medium">${timesheet.wage_amount.toFixed(2)}</span>
+              </div>
+              <hr className="my-1" />
+              <div className="flex justify-between">
+                <span className="text-gray-500">Mileage Rate</span>
+                <span className="font-medium">${timesheet.mileage_rate_snapshot.toFixed(2)}/km</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Mileage</span>
+                <span className="font-medium">${timesheet.mileage_amount.toFixed(2)}</span>
+              </div>
+              <hr className="my-1" />
+              <div className="flex justify-between font-bold">
+                <span>Estimated Total</span>
+                <span className="text-green-600">${timesheet.estimated_total.toFixed(2)}</span>
+              </div>
+              {timesheet.approved_total !== null && (
+                <div className="flex justify-between font-bold">
+                  <span>Approved Total</span>
+                  <span className="text-blue-600">${timesheet.approved_total.toFixed(2)}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Action buttons — for submitted and correction_submitted timesheets */}
+            {(timesheet.status === "submitted" || timesheet.status === "correction_submitted") && (
+              <div className="flex gap-3">
+                <button
+                  onClick={openCorrectionModal}
+                  disabled={acting}
+                  className="flex-1 bg-orange-500 text-white rounded-lg py-3 text-sm font-bold
+                             hover:bg-orange-600 disabled:opacity-50 transition-colors"
+                >
+                  {acting ? "…" : "⚠️ Needs Correction"}
+                </button>
+                <button
+                  onClick={handleApprove}
+                  disabled={acting}
+                  className="flex-1 bg-green-600 text-white rounded-lg py-3 text-sm font-bold
+                             hover:bg-green-700 disabled:opacity-50 transition-colors"
+                >
+                  {acting ? "…" : "✅ Approve"}
+                </button>
+              </div>
+            )}
+
+            {timesheet.status === "approved" && (
+              <p className="text-center text-sm text-green-600 font-medium">
+                ✅ This timesheet has been approved.
+              </p>
+            )}
+            {timesheet.status === "correction_required" && (
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 text-center">
+                <p className="text-sm text-orange-700 font-medium">
+                  ⏳ Waiting for employee to submit correction.
+                </p>
+              </div>
+            )}
+            {timesheet.status === "needs_correction" && (
+              <p className="text-center text-sm text-orange-600 font-medium">
+                ⚠️ This timesheet needs correction.
+              </p>
+            )}
+          </>
         )}
-        {timesheet.status === "needs_correction" && (
-          <p className="text-center text-sm text-orange-600 font-medium">
-            ⚠️ This timesheet needs correction.
-          </p>
+
+        {/* Correction History */}
+        {corrections.length > 0 && (
+          <div className="pt-2 border-t border-gray-100">
+            <button
+              onClick={() => setShowHistory(!showHistory)}
+              className="text-sm text-blue-600 hover:underline"
+            >
+              {showHistory ? "Hide" : "View"} Correction History ({corrections.length} round{corrections.length !== 1 ? "s" : ""})
+            </button>
+
+            {showHistory && (
+              <div className="mt-3 space-y-3">
+                {corrections.map((c) => (
+                  <div key={c.id} className="bg-gray-50 rounded-lg p-4 text-sm">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-semibold text-gray-900">Round {c.correction_round}</span>
+                      <StatusBadge status={c.status} />
+                    </div>
+                    <div className="space-y-1 text-gray-600">
+                      <div>
+                        <span className="font-medium">Fields: </span>
+                        {c.requested_fields.map((f) => FIELD_LABELS[f] || f).join(", ")}
+                      </div>
+                      <div>
+                        <span className="font-medium">Admin note: </span>
+                        &ldquo;{c.admin_note}&rdquo;
+                      </div>
+                      {c.employee_note && (
+                        <div>
+                          <span className="font-medium">Employee note: </span>
+                          &ldquo;{c.employee_note}&rdquo;
+                        </div>
+                      )}
+                      <div className="text-xs text-gray-400">
+                        Requested: {new Date(c.requested_at).toLocaleString("en-AU")}
+                        {c.submitted_at && ` · Submitted: ${new Date(c.submitted_at).toLocaleString("en-AU")}`}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
       </div>
+
+      {/* ── Needs Correction Modal ── */}
+      {showCorrectionModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-gray-900">Needs Correction</h2>
+                <button
+                  onClick={() => setShowCorrectionModal(false)}
+                  className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
+                >
+                  ×
+                </button>
+              </div>
+
+              <p className="text-sm text-gray-600 mb-4">
+                {timesheet.employee?.full_name} — {formatDateTime(timesheet.actual_start)}
+              </p>
+
+              {/* Field checkboxes */}
+              <div className="mb-4">
+                <h3 className="text-sm font-semibold text-gray-800 mb-2">
+                  What needs correction?
+                </h3>
+                <div className="space-y-2">
+                  {CORRECTABLE_FIELDS.map((field) => (
+                    <label
+                      key={field.key}
+                      className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                        selectedFields.includes(field.key)
+                          ? "border-orange-300 bg-orange-50"
+                          : "border-gray-200 hover:bg-gray-50"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedFields.includes(field.key)}
+                        onChange={() => toggleField(field.key)}
+                        className="accent-orange-500 w-4 h-4"
+                      />
+                      <span className="text-sm text-gray-700">{field.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Admin note */}
+              <div className="mb-4">
+                <h3 className="text-sm font-semibold text-gray-800 mb-2">
+                  Note to Employee <span className="text-red-500">*</span>
+                </h3>
+                <textarea
+                  value={adminNote}
+                  onChange={(e) => setAdminNote(e.target.value)}
+                  rows={3}
+                  placeholder="Please check your finish time and ending odometer. The reading does not appear to match your submission."
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm
+                             focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+
+              {correctionError && (
+                <div className="bg-red-50 text-red-700 text-sm rounded-lg p-3 border border-red-200 mb-4">
+                  {correctionError}
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowCorrectionModal(false)}
+                  className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2.5 text-sm
+                             font-medium hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={sendCorrectionRequest}
+                  disabled={acting}
+                  className="flex-1 bg-orange-500 text-white rounded-lg py-2.5 text-sm font-bold
+                             hover:bg-orange-600 disabled:opacity-50 transition-colors"
+                >
+                  {acting ? "Sending…" : "Send to Employee"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+/* Comparison row component */
+function ComparisonRow({
+  label,
+  before,
+  after,
+  changed,
+}: {
+  label: string;
+  before: string;
+  after: string;
+  changed: boolean;
+}) {
+  return (
+    <tr>
+      <td className="py-2 pr-4 text-gray-600">{label}</td>
+      <td className="py-2 px-2 text-right font-medium text-gray-500">{before}</td>
+      <td className={`py-2 pl-2 text-right font-medium ${changed ? "text-blue-600 bg-blue-50 rounded" : "text-gray-700"}`}>
+        {after}
+        {changed && <span className="ml-1 text-xs">✎</span>}
+      </td>
+    </tr>
   );
 }

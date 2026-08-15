@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import StatusBadge from "@/components/StatusBadge";
 
 interface Timesheet {
@@ -63,31 +64,47 @@ export default function EmployeeTimesheetsPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {timesheets.map((ts) => (
-            <div
-              key={ts.id}
-              className="bg-white rounded-xl border border-gray-200 p-4"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-medium text-gray-900">{formatDate(ts.actual_start)}</span>
-                <StatusBadge status={ts.status} />
-              </div>
-              <div className="text-sm text-gray-500 space-y-1">
-                <div>
-                  {formatTime(ts.actual_start)} – {formatTime(ts.actual_finish)} · {formatDuration(ts.worked_minutes)}
+          {timesheets.map((ts) => {
+            const needsAction = ts.status === "correction_required";
+
+            return (
+              <Link
+                key={ts.id}
+                href={`/employee/timesheets/${ts.id}`}
+                className={`block bg-white rounded-xl border p-4 transition-colors ${
+                  needsAction
+                    ? "border-orange-300 bg-orange-50 hover:border-orange-400"
+                    : "border-gray-200 hover:border-blue-300"
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-medium text-gray-900">{formatDate(ts.actual_start)}</span>
+                  <div className="flex items-center gap-2">
+                    {needsAction && (
+                      <span className="text-xs bg-orange-500 text-white px-2 py-0.5 rounded-full font-medium">
+                        Action Required
+                      </span>
+                    )}
+                    <StatusBadge status={ts.status} />
+                  </div>
                 </div>
-                <div>{ts.distance_km} km driven</div>
-              </div>
-              <div className="mt-2 pt-2 border-t border-gray-100 flex justify-between text-sm">
-                <span className="text-gray-500">
-                  {ts.status === "approved" ? "Approved Total" : "Estimated Total"}
-                </span>
-                <span className="font-bold text-gray-900">
-                  ${(ts.approved_total ?? ts.estimated_total).toFixed(2)}
-                </span>
-              </div>
-            </div>
-          ))}
+                <div className="text-sm text-gray-500 space-y-1">
+                  <div>
+                    {formatTime(ts.actual_start)} – {formatTime(ts.actual_finish)} · {formatDuration(ts.worked_minutes)}
+                  </div>
+                  <div>{ts.distance_km} km driven</div>
+                </div>
+                <div className="mt-2 pt-2 border-t border-gray-100 flex justify-between text-sm">
+                  <span className="text-gray-500">
+                    {ts.status === "approved" ? "Approved Total" : "Estimated Total"}
+                  </span>
+                  <span className="font-bold text-gray-900">
+                    ${(ts.approved_total ?? ts.estimated_total).toFixed(2)}
+                  </span>
+                </div>
+              </Link>
+            );
+          })}
         </div>
       )}
     </div>

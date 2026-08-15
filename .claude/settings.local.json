@@ -15,7 +15,10 @@
       "Bash(curl -s -X POST https://rqnevhgkfvkmspmtnera.supabase.co/pg -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxbmV2aGdrZnZrbXNwbXRuZXJhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NjY0ODM5NiwiZXhwIjoyMTAyMjI0Mzk2fQ.NNPUI7Dx3g1vGqwM1DOqH8F2li1wSLTpsuVwb4VKXLs' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxbmV2aGdrZnZrbXNwbXRuZXJhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NjY0ODM5NiwiZXhwIjoyMTAyMjI0Mzk2fQ.NNPUI7Dx3g1vGqwM1DOqH8F2li1wSLTpsuVwb4VKXLs' -H 'Content-Type: application/json' -d '{\"query\": \"SELECT 1\"}')",
       "Bash(curl -s -X POST https://rqnevhgkfvkmspmtnera.supabase.co/rest/v1/rpc/exec_sql -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxbmV2aGdrZnZrbXNwbXRuZXJhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NjY0ODM5NiwiZXhwIjoyMTAyMjI0Mzk2fQ.NNPUI7Dx3g1vGqwM1DOqH8F2li1wSLTpsuVwb4VKXLs' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxbmV2aGdrZnZrbXNwbXRuZXJhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NjY0ODM5NiwiZXhwIjoyMTAyMjI0Mzk2fQ.NNPUI7Dx3g1vGqwM1DOqH8F2li1wSLTpsuVwb4VKXLs' -H 'Content-Type: application/json' -d '{\"sql\": \"SELECT 1 as test\"}')",
       "Bash(git add *)",
-      "Bash(git commit -m 'Fix TypeScript build errors for Vercel deployment *)"
+      "Bash(git commit -m 'Fix TypeScript build errors for Vercel deployment *)",
+      "Bash(git push *)",
+      "Bash(git config *)",
+      "Bash(git commit *)"
     ]
   }
 }

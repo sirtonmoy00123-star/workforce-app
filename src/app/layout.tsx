@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Workforce App",
-  description: "Employee rostering, shift tracking, and payment management.",
+  description: "Employee rostering, shift tracking, and payment management",
 };
 
 export default function RootLayout({

@@ -22,7 +22,8 @@
       "Bash(npx next *)",
       "Bash(git commit -m 'Add admin roster shift editing with validation, audit logging, and employee reconfirmation *)",
       "Bash(mkdir -p \"C:\\\\tonmoy\\\\App\\\\V1 App\\\\src\\\\app\\\\api\\\\timesheets\\\\[id]\\\\corrections\")",
-      "Bash(mkdir -p \"C:\\\\tonmoy\\\\App\\\\V1 App\\\\src\\\\app\\\\employee\\\\timesheets\\\\[id]\")"
+      "Bash(mkdir -p \"C:\\\\tonmoy\\\\App\\\\V1 App\\\\src\\\\app\\\\employee\\\\timesheets\\\\[id]\")",
+      "Bash(git commit -m 'Add timesheet correction workflow *)"
     ]
   }
 }

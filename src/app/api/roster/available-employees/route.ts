@@ -1,8 +1,8 @@
 // GET /api/roster/available-employees?date=YYYY-MM-DD&startTime=HH:MM&endTime=HH:MM
 // Returns all active employees ranked by availability for the given date/time
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
 
 export interface AvailableEmployee {
   id: string;
@@ -37,19 +37,7 @@ function formatTime12(time24: string): string {
 
 export async function GET(request: Request) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-
-    if (!appUser || appUser.role !== "admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const ctx = await requireAdmin();
 
     const url = new URL(request.url);
     const date = url.searchParams.get("date");
@@ -62,11 +50,11 @@ export async function GET(request: Request) {
 
     const adminClient = createAdminClient();
 
-    // 1. Get all active employees
+    // 1. Get all active employees in this business
     const { data: employees } = await adminClient
       .from("employees")
       .select("id, full_name, employee_number, employment_status")
-      .eq("business_id", appUser.business_id)
+      .eq("business_id", ctx.businessId)
       .eq("employment_status", "active")
       .order("full_name");
 
@@ -219,7 +207,7 @@ export async function GET(request: Request) {
     });
 
     return NextResponse.json(results);
-  } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (err) {
+    return handleTenantError(err);
   }
 }

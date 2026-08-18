@@ -1,30 +1,20 @@
 // GET /api/payments — list payments
 // POST /api/payments — create payment from approved timesheets for an employee+period
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireMember, requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
 
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-    if (!appUser) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
+    const ctx = await requireMember();
     const adminClient = createAdminClient();
 
-    if (appUser.role === "admin") {
+    if (ctx.role === "OWNER" || ctx.role === "ADMIN") {
       // Get all employees in this business
       const { data: employees } = await adminClient
         .from("employees")
         .select("id, full_name, employee_number")
-        .eq("business_id", appUser.business_id);
+        .eq("business_id", ctx.businessId);
 
       if (!employees || employees.length === 0) return NextResponse.json([]);
 
@@ -47,42 +37,25 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(result);
     } else {
       // Employee sees their own
-      const { data: employee } = await supabase
-        .from("employees")
-        .select("id")
-        .eq("user_id", appUser.id)
-        .single();
-
-      if (!employee) return NextResponse.json([]);
+      if (!ctx.employeeId) return NextResponse.json([]);
 
       const { data: payments, error } = await adminClient
         .from("payments")
         .select("*")
-        .eq("employee_id", employee.id)
+        .eq("employee_id", ctx.employeeId)
         .order("created_at", { ascending: false });
 
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json(payments || []);
     }
-  } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (err) {
+    return handleTenantError(err);
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-    if (!appUser || appUser.role !== "admin") {
-      return NextResponse.json({ error: "Only admins can create payments." }, { status: 403 });
-    }
+    const ctx = await requireAdmin();
 
     const body = await request.json();
     const { employee_id, period_start, period_end } = body;
@@ -98,7 +71,7 @@ export async function POST(request: NextRequest) {
       .from("employees")
       .select("*")
       .eq("id", employee_id)
-      .eq("business_id", appUser.business_id)
+      .eq("business_id", ctx.businessId)
       .single();
 
     if (!employee) {
@@ -138,7 +111,7 @@ export async function POST(request: NextRequest) {
       .from("payments")
       .insert({
         employee_id,
-        business_id: appUser.business_id,
+        business_id: ctx.businessId,
         period_start,
         period_end,
         total_hours: totalHours,
@@ -156,7 +129,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(payment);
-  } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (err) {
+    return handleTenantError(err);
   }
 }

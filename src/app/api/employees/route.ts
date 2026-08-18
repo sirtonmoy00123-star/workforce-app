@@ -1,60 +1,31 @@
 // GET /api/employees — list employees for the admin's business
 // POST /api/employees — create a new employee (auth user + employees row)
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
 
 export async function GET() {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    const ctx = await requireAdmin();
 
-    // Get admin's business_id
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-
-    if (!appUser || appUser.role !== "admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-
-    const { data: employees, error } = await supabase
+    const adminClient = createAdminClient();
+    const { data: employees, error } = await adminClient
       .from("employees")
       .select("*")
-      .eq("business_id", appUser.business_id)
+      .eq("business_id", ctx.businessId)
       .order("full_name");
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     return NextResponse.json(employees);
-  } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (err) {
+    return handleTenantError(err);
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    // Verify admin role
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-
-    if (!appUser || appUser.role !== "admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const ctx = await requireAdmin();
 
     const body = await request.json();
     const { fullName, phone, employeeNumber, hourlyRate, mileageRate, userId, temporaryPassword } = body;
@@ -80,7 +51,7 @@ export async function POST(request: Request) {
     const { data: existing } = await adminClient
       .from("employees")
       .select("id")
-      .eq("business_id", appUser.business_id)
+      .eq("business_id", ctx.businessId)
       .eq("employee_number", employeeNumber)
       .limit(1);
 
@@ -114,7 +85,7 @@ export async function POST(request: Request) {
       .from("users")
       .insert({
         auth_user_id: authData.user.id,
-        business_id: appUser.business_id,
+        business_id: ctx.businessId,
         role: "employee",
         username: userId,
         must_change_password: true,
@@ -132,11 +103,21 @@ export async function POST(request: Request) {
       );
     }
 
+    // 2b. Create business_members row for the new employee
+    await adminClient
+      .from("business_members")
+      .insert({
+        business_id: ctx.businessId,
+        user_id: newUser.id,
+        role: "EMPLOYEE",
+        status: "ACTIVE",
+      });
+
     // 3. Create employee row
     const { data: employee, error: empError } = await adminClient
       .from("employees")
       .insert({
-        business_id: appUser.business_id,
+        business_id: ctx.businessId,
         user_id: newUser.id,
         employee_number: employeeNumber,
         full_name: fullName,
@@ -150,6 +131,7 @@ export async function POST(request: Request) {
 
     if (empError) {
       // Rollback: delete user row and auth user
+      await adminClient.from("business_members").delete().eq("user_id", newUser.id);
       await adminClient.from("users").delete().eq("id", newUser.id);
       await adminClient.auth.admin.deleteUser(authData.user.id);
       return NextResponse.json(
@@ -167,7 +149,7 @@ export async function POST(request: Request) {
         note: "Employee must change password on first login.",
       },
     });
-  } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (err) {
+    return handleTenantError(err);
   }
 }

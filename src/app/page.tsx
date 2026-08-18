@@ -1,6 +1,7 @@
 // Root page — redirects to the right place based on auth state and role.
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export default async function RootPage() {
   const supabase = await createClient();
@@ -14,8 +15,9 @@ export default async function RootPage() {
     redirect("/login");
   }
 
-  // 2. Get the user's app profile
-  const { data: appUser } = await supabase
+  // 2. Get the user's app profile (use admin client so is_platform_admin is visible)
+  const adminClient = createAdminClient();
+  const { data: appUser } = await adminClient
     .from("users")
     .select("*")
     .eq("auth_user_id", user.id)
@@ -38,7 +40,9 @@ export default async function RootPage() {
   }
 
   // 5. Route to role-specific dashboard
-  if (appUser.role === "admin") {
+  if (appUser.is_platform_admin) {
+    redirect("/platform/home");
+  } else if (appUser.role === "admin") {
     redirect("/admin/dashboard");
   } else {
     redirect("/employee/home");

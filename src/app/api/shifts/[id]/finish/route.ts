@@ -1,8 +1,8 @@
 // POST /api/shifts/[id]/finish — Employee finishes a shift
 // Uploads finish odometer photo, updates attendance, auto-generates timesheet
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireRole, handleTenantError } from "@/lib/services/tenantContext";
 import { calculateWorkedMinutes } from "@/lib/calculations/time";
 import { calculateMileage } from "@/lib/calculations/mileage";
 import { calculatePayment } from "@/lib/calculations/payment";
@@ -13,26 +13,9 @@ export async function POST(
 ) {
   try {
     const { id: shiftId } = await params;
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    const ctx = await requireRole("EMPLOYEE");
 
-    // Verify user is an employee
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-    if (!appUser || appUser.role !== "employee") {
-      return NextResponse.json({ error: "Only employees can finish shifts." }, { status: 403 });
-    }
-
-    const { data: employee } = await supabase
-      .from("employees")
-      .select("*")
-      .eq("user_id", appUser.id)
-      .single();
-    if (!employee) {
+    if (!ctx.employeeId) {
       return NextResponse.json({ error: "Employee record not found." }, { status: 404 });
     }
 
@@ -48,7 +31,10 @@ export async function POST(
     if (!shift) {
       return NextResponse.json({ error: "Shift not found." }, { status: 404 });
     }
-    if (shift.employee_id !== employee.id) {
+    if (shift.business_id !== ctx.businessId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (shift.employee_id !== ctx.employeeId) {
       return NextResponse.json({ error: "This shift is not assigned to you." }, { status: 403 });
     }
 
@@ -57,7 +43,7 @@ export async function POST(
       .from("shift_attendance")
       .select("*")
       .eq("shift_id", shiftId)
-      .eq("employee_id", employee.id)
+      .eq("employee_id", ctx.employeeId)
       .single();
 
     if (!attendance || attendance.attendance_status !== "working") {
@@ -69,7 +55,7 @@ export async function POST(
       .from("odometer_submissions")
       .select("*")
       .eq("shift_id", shiftId)
-      .eq("employee_id", employee.id)
+      .eq("employee_id", ctx.employeeId)
       .eq("submission_type", "START")
       .single();
 
@@ -96,7 +82,7 @@ export async function POST(
 
     // Upload photo
     const fileExt = photo.name.split(".").pop() || "jpg";
-    const fileName = `${employee.id}/${shiftId}/finish_${Date.now()}.${fileExt}`;
+    const fileName = `${ctx.employeeId}/${shiftId}/finish_${Date.now()}.${fileExt}`;
     const arrayBuffer = await photo.arrayBuffer();
     const fileBuffer = new Uint8Array(arrayBuffer);
 
@@ -120,8 +106,8 @@ export async function POST(
       .from("odometer_submissions")
       .insert({
         shift_id: shiftId,
-        employee_id: employee.id,
-        business_id: shift.business_id,
+        employee_id: ctx.employeeId,
+        business_id: ctx.businessId,
         submission_type: "FINISH",
         photo_path: fileName,
         odometer_reading: odometerReading,
@@ -159,6 +145,22 @@ export async function POST(
     }
 
     // === AUTO-GENERATE TIMESHEET ===
+    // Get employee for rate snapshot
+    const { data: employee } = await adminClient
+      .from("employees")
+      .select("hourly_rate, mileage_rate")
+      .eq("id", ctx.employeeId)
+      .single();
+
+    if (!employee) {
+      return NextResponse.json({
+        success: true,
+        actual_finish: serverNow,
+        message: "Shift finished but could not find employee rates for timesheet.",
+        timesheet_error: true,
+      });
+    }
+
     const actualStart = new Date(attendance.actual_start!);
     const actualFinish = new Date(serverNow);
     const workedMinutes = calculateWorkedMinutes(actualStart, actualFinish);
@@ -174,8 +176,8 @@ export async function POST(
       .from("timesheets")
       .insert({
         shift_id: shiftId,
-        employee_id: employee.id,
-        business_id: shift.business_id,
+        employee_id: ctx.employeeId,
+        business_id: ctx.businessId,
         scheduled_start: shift.scheduled_start,
         scheduled_finish: shift.scheduled_finish,
         actual_start: attendance.actual_start!,
@@ -219,7 +221,6 @@ export async function POST(
       },
     });
   } catch (err) {
-    console.error("Finish shift error:", err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return handleTenantError(err);
   }
 }

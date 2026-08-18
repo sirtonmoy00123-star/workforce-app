@@ -1,9 +1,8 @@
 // GET /api/timesheets/[id]/corrections — list corrections for a timesheet
 // POST /api/timesheets/[id]/corrections — admin creates a correction request
-// PUT handled by /api/timesheets/[id]/corrections/[correctionId]/route.ts
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireMember, requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
 
 const VALID_FIELDS = [
   "actual_start",
@@ -21,16 +20,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-    if (!appUser) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    await requireMember(); // just authenticate — corrections are tied to a timesheet the user already has access to
 
     const adminClient = createAdminClient();
 
@@ -43,8 +33,8 @@ export async function GET(
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json(corrections || []);
-  } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (err) {
+    return handleTenantError(err);
   }
 }
 
@@ -54,18 +44,7 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-    if (!appUser || appUser.role !== "admin") {
-      return NextResponse.json({ error: "Only admins can request corrections." }, { status: 403 });
-    }
+    const ctx = await requireAdmin();
 
     const body = await request.json();
     const { requested_fields, admin_note } = body;
@@ -98,12 +77,7 @@ export async function POST(
     }
 
     // Verify business ownership
-    const { data: employee } = await adminClient
-      .from("employees")
-      .select("business_id")
-      .eq("id", timesheet.employee_id)
-      .single();
-    if (!employee || employee.business_id !== appUser.business_id) {
+    if (timesheet.business_id !== ctx.businessId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -156,14 +130,14 @@ export async function POST(
     const { data: correction, error: insertError } = await (adminClient as any)
       .from("timesheet_corrections")
       .insert({
-        business_id: appUser.business_id,
+        business_id: ctx.businessId,
         timesheet_id: id,
         employee_id: timesheet.employee_id,
         correction_round: correctionRound,
         requested_fields,
         admin_note: admin_note.trim(),
         original_values: originalValues,
-        requested_by: appUser.id,
+        requested_by: ctx.userId,
         status: "pending",
       })
       .select("id")
@@ -184,7 +158,7 @@ export async function POST(
       correction_id: correction?.id,
       correction_round: correctionRound,
     });
-  } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (err) {
+    return handleTenantError(err);
   }
 }

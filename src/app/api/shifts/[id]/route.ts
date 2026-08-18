@@ -1,8 +1,8 @@
 // GET /api/shifts/[id] — get single shift details
 // PUT /api/shifts/[id] — accept/decline (employee) OR preview/update (admin edit)
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireMember, handleTenantError } from "@/lib/services/tenantContext";
 import {
   validateShiftAssignment,
   requiresEmployeeReconfirmation,
@@ -19,18 +19,9 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-    if (!appUser) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
+    const ctx = await requireMember();
     const adminClient = createAdminClient();
+
     const { data: shift, error } = await adminClient
       .from("shifts")
       .select("*")
@@ -41,20 +32,14 @@ export async function GET(
       return NextResponse.json({ error: "Shift not found" }, { status: 404 });
     }
 
-    // Verify access: admin must be same business, employee must own the shift
-    if (appUser.role === "admin") {
-      if (shift.business_id !== appUser.business_id) {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      }
-    } else {
-      const { data: emp } = await supabase
-        .from("employees")
-        .select("id")
-        .eq("user_id", appUser.id)
-        .single();
-      if (!emp || shift.employee_id !== emp.id) {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      }
+    // Verify access: must be same business
+    if (shift.business_id !== ctx.businessId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    // Employee can only see their own shifts
+    if (ctx.role === "EMPLOYEE" && shift.employee_id !== ctx.employeeId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     // Also get employee name for display
@@ -73,8 +58,8 @@ export async function GET(
       .maybeSingle();
 
     return NextResponse.json({ ...shift, employee, attendance });
-  } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (err) {
+    return handleTenantError(err);
   }
 }
 
@@ -84,16 +69,7 @@ export async function PUT(
 ) {
   try {
     const { id } = await params;
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-    if (!appUser) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const ctx = await requireMember();
 
     const body = await request.json();
     const { action } = body;
@@ -111,15 +87,14 @@ export async function PUT(
       return NextResponse.json({ error: "Shift not found" }, { status: 404 });
     }
 
-    // ── Employee actions: accept / decline / accept_updated ──
-    if (appUser.role === "employee") {
-      const { data: emp } = await supabase
-        .from("employees")
-        .select("id")
-        .eq("user_id", appUser.id)
-        .single();
+    // Must be same business
+    if (shift.business_id !== ctx.businessId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
-      if (!emp || shift.employee_id !== emp.id) {
+    // ── Employee actions: accept / decline / accept_updated ──
+    if (ctx.role === "EMPLOYEE") {
+      if (shift.employee_id !== ctx.employeeId) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
 
@@ -151,26 +126,21 @@ export async function PUT(
     }
 
     // ── Admin actions: preview_edit / update_shift ──
-    if (appUser.role === "admin") {
-      if (shift.business_id !== appUser.business_id) {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      }
-
+    if (ctx.role === "OWNER" || ctx.role === "ADMIN") {
       if (action === "preview_edit") {
         return handlePreviewEdit(id, body, shift, adminClient);
       }
 
       if (action === "update_shift") {
-        return handleUpdateShift(id, body, shift, appUser, adminClient);
+        return handleUpdateShift(id, body, shift, ctx, adminClient);
       }
 
-      // Legacy: admin could also accept/decline on behalf (not used in current UI)
       return NextResponse.json({ error: "Invalid action" }, { status: 400 });
     }
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
-  } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (err) {
+    return handleTenantError(err);
   }
 }
 
@@ -274,7 +244,7 @@ async function handlePreviewEdit(shiftId: string, body: any, shift: any, adminCl
 
 // ── Save the edit ──
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function handleUpdateShift(shiftId: string, body: any, shift: any, appUser: any, adminClient: any) {
+async function handleUpdateShift(shiftId: string, body: any, shift: any, ctx: any, adminClient: any) {
   const { date, startTime, endTime, location, instructions, changeReason, changeNotes, overrideReason } = body;
 
   if (!date || !startTime || !endTime) {
@@ -386,7 +356,7 @@ async function handleUpdateShift(shiftId: string, body: any, shift: any, appUser
       location: location || null,
       instructions: instructions || null,
       status: newStatus,
-      updated_by: appUser.id,
+      updated_by: ctx.userId,
       last_change_reason: changeReason,
     })
     .eq("id", shiftId);
@@ -402,7 +372,8 @@ async function handleUpdateShift(shiftId: string, body: any, shift: any, appUser
     .insert({
       shift_id: shiftId,
       employee_id: shift.employee_id,
-      changed_by: appUser.id,
+      business_id: shift.business_id,
+      changed_by: ctx.userId,
       original_date: shift.date,
       new_date: date,
       original_start: shift.scheduled_start,

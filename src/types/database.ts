@@ -13,6 +13,7 @@ export type Database = {
           username: string;
           must_change_password: boolean;
           account_status: "active" | "disabled";
+          is_platform_admin: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -24,6 +25,7 @@ export type Database = {
           username: string;
           must_change_password?: boolean;
           account_status?: "active" | "disabled";
+          is_platform_admin?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -35,6 +37,7 @@ export type Database = {
           username?: string;
           must_change_password?: boolean;
           account_status?: "active" | "disabled";
+          is_platform_admin?: boolean;
           created_at?: string;
           updated_at?: string;
         };

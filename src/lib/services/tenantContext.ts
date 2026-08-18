@@ -8,6 +8,7 @@
  * - This is the ONLY way server code learns which business the caller is in.
  */
 
+import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -198,4 +199,76 @@ export async function requireAdmin(): Promise<BusinessContext> {
  */
 export async function requireMember(): Promise<BusinessContext> {
   return getCurrentBusinessContext();
+}
+
+// ────────────────────────────────────────────────────────────
+// Platform admin guard
+// ────────────────────────────────────────────────────────────
+
+export interface PlatformAdminContext {
+  /** The app-level user id (public.users.id) */
+  userId: string;
+  /** The Supabase Auth uid (auth.users.id) */
+  authUserId: string;
+}
+
+/**
+ * Requires the caller to be a Platform Admin.
+ * Platform Admin is NOT a business role — it's a separate flag on the users table.
+ * Platform Admins manage businesses, not business data.
+ */
+export async function requirePlatformAdmin(): Promise<PlatformAdminContext> {
+  const supabase = await createClient();
+  const {
+    data: { user: authUser },
+  } = await supabase.auth.getUser();
+
+  if (!authUser) {
+    throw new TenantError("Not authenticated. Please log in.", 401);
+  }
+
+  const adminClient = createAdminClient();
+
+  const { data: appUser, error: userError } = await adminClient
+    .from("users")
+    .select("id, is_platform_admin, account_status")
+    .eq("auth_user_id", authUser.id)
+    .single();
+
+  if (userError || !appUser) {
+    throw new TenantError("User account not found.", 403);
+  }
+
+  if (appUser.account_status === "disabled") {
+    throw new TenantError("Your account has been disabled.", 403);
+  }
+
+  if (!appUser.is_platform_admin) {
+    throw new TenantError("Platform admin access required.", 403);
+  }
+
+  return {
+    userId: appUser.id,
+    authUserId: authUser.id,
+  };
+}
+
+// ────────────────────────────────────────────────────────────
+// Error response helper
+// ────────────────────────────────────────────────────────────
+
+/**
+ * Catches TenantError and returns a proper NextResponse.
+ * Use in route catch blocks:
+ *
+ *   catch (err) {
+ *     return handleTenantError(err);
+ *   }
+ */
+export function handleTenantError(err: unknown): NextResponse {
+  if (err instanceof TenantError) {
+    return NextResponse.json({ error: err.message }, { status: err.statusCode });
+  }
+  console.error("Unexpected error:", err);
+  return NextResponse.json({ error: "Internal server error" }, { status: 500 });
 }

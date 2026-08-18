@@ -1,41 +1,27 @@
 // GET /api/shifts — list shifts (with optional date range filter)
 // POST /api/shifts — create a new shift
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireMember, requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
 
 export async function GET(request: Request) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-
-    if (!appUser) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const ctx = await requireMember();
+    const adminClient = createAdminClient();
 
     const url = new URL(request.url);
     const startDate = url.searchParams.get("startDate");
     const endDate = url.searchParams.get("endDate");
     const employeeId = url.searchParams.get("employeeId");
 
-    let query = supabase.from("shifts").select("*");
+    let query = adminClient.from("shifts").select("*");
 
-    if (appUser.role === "admin") {
-      query = query.eq("business_id", appUser.business_id);
+    if (ctx.role === "OWNER" || ctx.role === "ADMIN") {
+      query = query.eq("business_id", ctx.businessId);
     } else {
       // Employee only sees their own shifts
-      const { data: emp } = await supabase
-        .from("employees")
-        .select("id")
-        .eq("user_id", appUser.id)
-        .single();
-      if (!emp) return NextResponse.json([]);
-      query = query.eq("employee_id", emp.id);
+      if (!ctx.employeeId) return NextResponse.json([]);
+      query = query.eq("employee_id", ctx.employeeId);
     }
 
     if (startDate) query = query.gte("date", startDate);
@@ -48,26 +34,14 @@ export async function GET(request: Request) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     return NextResponse.json(shifts || []);
-  } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (err) {
+    return handleTenantError(err);
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-
-    if (!appUser || appUser.role !== "admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const ctx = await requireAdmin();
 
     const body = await request.json();
     const { employeeId, date, startTime, endTime, location, instructions, overrideAvailability } = body;
@@ -86,7 +60,7 @@ export async function POST(request: Request) {
       .from("employees")
       .select("*")
       .eq("id", employeeId)
-      .eq("business_id", appUser.business_id)
+      .eq("business_id", ctx.businessId)
       .single();
 
     if (!employee) {
@@ -98,8 +72,6 @@ export async function POST(request: Request) {
     }
 
     // Build full timestamps with timezone offset so they're stored correctly.
-    // The admin enters times in their local timezone, so we create Date objects
-    // from the local date+time and use their ISO representation.
     const startDate = new Date(`${date}T${startTime}:00`);
     const endDate = new Date(`${date}T${endTime}:00`);
     const scheduledStart = startDate.toISOString();
@@ -136,7 +108,6 @@ export async function POST(request: Request) {
     if (!avail || !avail.is_available) {
       availabilityWarning = true;
     } else if (avail.start_time && avail.end_time) {
-      // Check if shift falls within availability window
       if (startTime < avail.start_time.substring(0, 5) || endTime > avail.end_time.substring(0, 5)) {
         availabilityWarning = true;
       }
@@ -156,7 +127,7 @@ export async function POST(request: Request) {
     const { data: shift, error } = await adminClient
       .from("shifts")
       .insert({
-        business_id: appUser.business_id,
+        business_id: ctx.businessId,
         employee_id: employeeId,
         date,
         scheduled_start: scheduledStart,
@@ -164,7 +135,7 @@ export async function POST(request: Request) {
         location: location || null,
         instructions: instructions || null,
         status: "pending",
-        created_by: appUser.id,
+        created_by: ctx.userId,
       })
       .select("*")
       .single();
@@ -174,7 +145,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ success: true, shift });
-  } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (err) {
+    return handleTenantError(err);
   }
 }

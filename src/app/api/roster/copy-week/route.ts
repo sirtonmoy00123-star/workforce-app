@@ -1,7 +1,7 @@
 // POST /api/roster/copy-week — copy last week's shifts to current week
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
 
 interface CopyPreviewShift {
   originalShiftId: string;
@@ -23,19 +23,7 @@ function formatDateStr(d: Date): string {
 
 export async function POST(request: Request) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-
-    if (!appUser || appUser.role !== "admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const ctx = await requireAdmin();
 
     const body = await request.json();
     const { action, fromWeekStart, toWeekStart } = body;
@@ -54,11 +42,11 @@ export async function POST(request: Request) {
 
     const toStart = new Date(toWeekStart + "T00:00:00");
 
-    // Fetch source week shifts
+    // Fetch source week shifts — scoped to business
     const { data: sourceShifts } = await adminClient
       .from("shifts")
       .select("*")
-      .eq("business_id", appUser.business_id)
+      .eq("business_id", ctx.businessId)
       .gte("date", formatDateStr(fromStart))
       .lte("date", formatDateStr(fromEnd))
       .not("status", "in", '("cancelled","declined")')
@@ -100,7 +88,7 @@ export async function POST(request: Request) {
     const { data: targetShifts } = await adminClient
       .from("shifts")
       .select("employee_id, date, scheduled_start, scheduled_finish, status")
-      .eq("business_id", appUser.business_id)
+      .eq("business_id", ctx.businessId)
       .gte("date", formatDateStr(toStart))
       .lte("date", formatDateStr(toEnd))
       .not("status", "in", '("cancelled","declined")');
@@ -249,7 +237,7 @@ export async function POST(request: Request) {
       const shiftsToInsert = preview
         .filter((p) => selectedIds.includes(p.originalShiftId) && (p.status === "ready" || body.forceOverride))
         .map((p) => ({
-          business_id: appUser.business_id,
+          business_id: ctx.businessId,
           employee_id: p.employeeId,
           date: p.date,
           scheduled_start: new Date(`${p.date}T${p.startTime}:00`).toISOString(),
@@ -257,7 +245,7 @@ export async function POST(request: Request) {
           location: p.location,
           instructions: p.instructions,
           status: "pending" as const,
-          created_by: appUser.id,
+          created_by: ctx.userId,
         }));
 
       if (shiftsToInsert.length === 0) {
@@ -280,7 +268,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ error: "Invalid action. Use 'preview' or 'create'." }, { status: 400 });
-  } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (err) {
+    return handleTenantError(err);
   }
 }

@@ -1,8 +1,8 @@
 // POST /api/shifts/[id]/start — Employee starts a shift
 // Creates shift_attendance record, uploads odometer photo, saves odometer submission
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireRole, handleTenantError } from "@/lib/services/tenantContext";
 
 export async function POST(
   request: Request,
@@ -10,32 +10,15 @@ export async function POST(
 ) {
   try {
     const { id: shiftId } = await params;
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    const ctx = await requireRole("EMPLOYEE");
 
-    // Verify user is an employee
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-    if (!appUser || appUser.role !== "employee") {
-      return NextResponse.json({ error: "Only employees can start shifts." }, { status: 403 });
-    }
-
-    const { data: employee } = await supabase
-      .from("employees")
-      .select("*")
-      .eq("user_id", appUser.id)
-      .single();
-    if (!employee) {
+    if (!ctx.employeeId) {
       return NextResponse.json({ error: "Employee record not found." }, { status: 404 });
     }
 
     const adminClient = createAdminClient();
 
-    // Get the shift and verify ownership
+    // Get the shift and verify ownership + business
     const { data: shift } = await adminClient
       .from("shifts")
       .select("*")
@@ -45,7 +28,10 @@ export async function POST(
     if (!shift) {
       return NextResponse.json({ error: "Shift not found." }, { status: 404 });
     }
-    if (shift.employee_id !== employee.id) {
+    if (shift.business_id !== ctx.businessId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (shift.employee_id !== ctx.employeeId) {
       return NextResponse.json({ error: "This shift is not assigned to you." }, { status: 403 });
     }
     if (shift.status !== "accepted") {
@@ -57,7 +43,7 @@ export async function POST(
       .from("shift_attendance")
       .select("id")
       .eq("shift_id", shiftId)
-      .eq("employee_id", employee.id)
+      .eq("employee_id", ctx.employeeId)
       .maybeSingle();
 
     if (existingAttendance) {
@@ -78,7 +64,7 @@ export async function POST(
 
     // Upload photo to Supabase Storage (odometer-photos bucket)
     const fileExt = photo.name.split(".").pop() || "jpg";
-    const fileName = `${employee.id}/${shiftId}/start_${Date.now()}.${fileExt}`;
+    const fileName = `${ctx.employeeId}/${shiftId}/start_${Date.now()}.${fileExt}`;
     const arrayBuffer = await photo.arrayBuffer();
     const fileBuffer = new Uint8Array(arrayBuffer);
 
@@ -102,8 +88,8 @@ export async function POST(
       .from("shift_attendance")
       .insert({
         shift_id: shiftId,
-        employee_id: employee.id,
-        business_id: shift.business_id,
+        employee_id: ctx.employeeId,
+        business_id: ctx.businessId,
         actual_start: serverNow,
         attendance_status: "working",
       });
@@ -118,8 +104,8 @@ export async function POST(
       .from("odometer_submissions")
       .insert({
         shift_id: shiftId,
-        employee_id: employee.id,
-        business_id: shift.business_id,
+        employee_id: ctx.employeeId,
+        business_id: ctx.businessId,
         submission_type: "START",
         photo_path: fileName,
         odometer_reading: odometerReading,
@@ -131,17 +117,12 @@ export async function POST(
       return NextResponse.json({ error: "Failed to save odometer reading." }, { status: 500 });
     }
 
-    // Update shift status to in_progress (we use "accepted" → keep as accepted for now,
-    // but the attendance_status="working" indicates in-progress)
-    // The shift stays "accepted" while working — it becomes "completed" when finished.
-
     return NextResponse.json({
       success: true,
       actual_start: serverNow,
       message: "Shift started successfully.",
     });
   } catch (err) {
-    console.error("Start shift error:", err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return handleTenantError(err);
   }
 }

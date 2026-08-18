@@ -1,7 +1,7 @@
 // POST /api/timesheets/[id]/corrections/submit — employee submits a correction
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireRole, handleTenantError } from "@/lib/services/tenantContext";
 import { calculateWorkedMinutes } from "@/lib/calculations/time";
 import { calculateMileage } from "@/lib/calculations/mileage";
 import { calculatePayment } from "@/lib/calculations/payment";
@@ -12,25 +12,9 @@ export async function POST(
 ) {
   try {
     const { id: timesheetId } = await params;
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    const ctx = await requireRole("EMPLOYEE");
 
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-    if (!appUser) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
-    // Must be an employee
-    const { data: employee } = await supabase
-      .from("employees")
-      .select("id")
-      .eq("user_id", appUser.id)
-      .single();
-
-    if (!employee) {
+    if (!ctx.employeeId) {
       return NextResponse.json({ error: "Employee not found." }, { status: 403 });
     }
 
@@ -48,8 +32,11 @@ export async function POST(
       return NextResponse.json({ error: "Timesheet not found." }, { status: 404 });
     }
 
-    // Verify ownership
-    if (timesheet.employee_id !== employee.id) {
+    // Verify ownership and business
+    if (timesheet.business_id !== ctx.businessId) {
+      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    }
+    if (timesheet.employee_id !== ctx.employeeId) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
@@ -202,7 +189,6 @@ export async function POST(
       recalculated: recalculatedValues,
     });
   } catch (err) {
-    console.error("Correction submit error:", err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return handleTenantError(err);
   }
 }

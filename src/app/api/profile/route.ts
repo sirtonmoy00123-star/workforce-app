@@ -1,26 +1,23 @@
 // GET /api/profile — get current employee's profile
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { requireRole, handleTenantError } from "@/lib/services/tenantContext";
 
 export async function GET() {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    const ctx = await requireRole("EMPLOYEE");
 
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-    if (!appUser || appUser.role !== "employee") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (!ctx.employeeId) {
+      return NextResponse.json({ error: "Employee not found" }, { status: 404 });
     }
 
-    const { data: employee, error } = await supabase
+    const adminClient = createAdminClient();
+
+    const { data: employee, error } = await adminClient
       .from("employees")
       .select("full_name, employee_number, phone, hourly_rate, mileage_rate, employment_status")
-      .eq("user_id", appUser.id)
+      .eq("id", ctx.employeeId)
+      .eq("business_id", ctx.businessId)
       .single();
 
     if (error || !employee) {
@@ -28,7 +25,7 @@ export async function GET() {
     }
 
     return NextResponse.json(employee);
-  } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (err) {
+    return handleTenantError(err);
   }
 }

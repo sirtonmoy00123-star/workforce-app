@@ -1,8 +1,8 @@
 // GET /api/timesheets/[id] — get single timesheet details
 // PUT /api/timesheets/[id] — admin approve/needs_correction
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireMember, requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
 
 export async function GET(
   _request: Request,
@@ -10,17 +10,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-    if (!appUser) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
+    const ctx = await requireMember();
     const adminClient = createAdminClient();
 
     const { data: timesheet, error } = await adminClient
@@ -33,28 +23,22 @@ export async function GET(
       return NextResponse.json({ error: "Timesheet not found" }, { status: 404 });
     }
 
+    // Verify business access
+    if (timesheet.business_id !== ctx.businessId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    // Employee can only see their own
+    if (ctx.role === "EMPLOYEE" && timesheet.employee_id !== ctx.employeeId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     // Get employee info
     const { data: employee } = await adminClient
       .from("employees")
-      .select("id, full_name, employee_number, business_id")
+      .select("id, full_name, employee_number")
       .eq("id", timesheet.employee_id)
       .single();
-
-    // Verify access
-    if (appUser.role === "admin") {
-      if (employee && employee.business_id !== appUser.business_id) {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      }
-    } else {
-      const { data: emp } = await supabase
-        .from("employees")
-        .select("id")
-        .eq("user_id", appUser.id)
-        .single();
-      if (!emp || timesheet.employee_id !== emp.id) {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      }
-    }
 
     // Get odometer submissions for this shift
     const { data: odometerSubmissions } = await adminClient
@@ -76,8 +60,8 @@ export async function GET(
       odometer_submissions: odometerSubmissions || [],
       shift_location: shift?.location || null,
     });
-  } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (err) {
+    return handleTenantError(err);
   }
 }
 
@@ -87,18 +71,7 @@ export async function PUT(
 ) {
   try {
     const { id } = await params;
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-    if (!appUser || appUser.role !== "admin") {
-      return NextResponse.json({ error: "Only admins can approve timesheets." }, { status: 403 });
-    }
+    const ctx = await requireAdmin();
 
     const body = await request.json();
     const { action, approved_total } = body; // action: "approve" | "needs_correction"
@@ -116,14 +89,8 @@ export async function PUT(
       return NextResponse.json({ error: "Timesheet not found" }, { status: 404 });
     }
 
-    // Get the employee's business_id
-    const { data: employee } = await adminClient
-      .from("employees")
-      .select("business_id")
-      .eq("id", timesheet.employee_id)
-      .single();
-
-    if (!employee || employee.business_id !== appUser.business_id) {
+    // Verify business access
+    if (timesheet.business_id !== ctx.businessId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -135,7 +102,7 @@ export async function PUT(
         .update({
           status: "approved",
           approved_total: finalTotal,
-          approved_by: appUser.id,
+          approved_by: ctx.userId,
           approved_at: new Date().toISOString(),
         })
         .eq("id", id);
@@ -154,12 +121,11 @@ export async function PUT(
     }
 
     if (action === "needs_correction") {
-      // Legacy simple needs_correction (without the new correction workflow)
       const { error } = await adminClient
         .from("timesheets")
         .update({
           status: "needs_correction",
-          approved_by: appUser.id,
+          approved_by: ctx.userId,
           approved_at: new Date().toISOString(),
         })
         .eq("id", id);
@@ -169,7 +135,7 @@ export async function PUT(
     }
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
-  } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (err) {
+    return handleTenantError(err);
   }
 }

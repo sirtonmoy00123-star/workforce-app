@@ -1,8 +1,8 @@
 // GET /api/employees/[id]/availability — get weekly availability
 // PUT /api/employees/[id]/availability — set/update weekly availability (all 7 days)
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
 
 export async function GET(
   _request: Request,
@@ -10,43 +10,33 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-
-    if (!appUser || appUser.role !== "admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const ctx = await requireAdmin();
+    const adminClient = createAdminClient();
 
     // Verify employee belongs to this business
-    const { data: employee } = await supabase
+    const { data: employee } = await adminClient
       .from("employees")
-      .select("*")
+      .select("id")
       .eq("id", id)
-      .eq("business_id", appUser.business_id)
+      .eq("business_id", ctx.businessId)
       .single();
 
     if (!employee) {
       return NextResponse.json({ error: "Employee not found" }, { status: 404 });
     }
 
-    const { data: availability, error } = await supabase
+    const { data: availability, error } = await adminClient
       .from("employee_availability")
       .select("*")
       .eq("employee_id", id)
+      .eq("business_id", ctx.businessId)
       .order("day_of_week");
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     return NextResponse.json(availability || []);
-  } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (err) {
+    return handleTenantError(err);
   }
 }
 
@@ -56,26 +46,15 @@ export async function PUT(
 ) {
   try {
     const { id } = await params;
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-
-    if (!appUser || appUser.role !== "admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const ctx = await requireAdmin();
+    const adminClient = createAdminClient();
 
     // Verify employee belongs to this business
-    const { data: employee } = await supabase
+    const { data: employee } = await adminClient
       .from("employees")
-      .select("*")
+      .select("id")
       .eq("id", id)
-      .eq("business_id", appUser.business_id)
+      .eq("business_id", ctx.businessId)
       .single();
 
     if (!employee) {
@@ -93,8 +72,6 @@ export async function PUT(
       );
     }
 
-    const adminClient = createAdminClient();
-
     // Delete existing availability for this employee, then insert fresh
     await adminClient
       .from("employee_availability")
@@ -103,12 +80,12 @@ export async function PUT(
 
     const rows = days.map((day: { dayOfWeek: number; isAvailable: boolean; startTime: string | null; endTime: string | null }) => ({
       employee_id: id,
-      business_id: appUser.business_id,
+      business_id: ctx.businessId,
       day_of_week: day.dayOfWeek,
       is_available: day.isAvailable,
       start_time: day.isAvailable ? day.startTime : null,
       end_time: day.isAvailable ? day.endTime : null,
-      created_by: appUser.id,
+      created_by: ctx.userId,
     }));
 
     const { error } = await adminClient
@@ -118,7 +95,7 @@ export async function PUT(
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     return NextResponse.json({ success: true });
-  } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (err) {
+    return handleTenantError(err);
   }
 }

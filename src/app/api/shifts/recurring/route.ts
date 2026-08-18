@@ -1,7 +1,7 @@
 // POST /api/shifts/recurring — preview conflicts OR create recurring shifts
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
 import {
   generateRecurringDates,
   buildConflictReport,
@@ -12,38 +12,25 @@ import {
 
 export async function POST(request: Request) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-
-    if (!appUser || appUser.role !== "admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const ctx = await requireAdmin();
 
     const body = await request.json();
     const { action } = body;
 
     if (action === "preview") {
-      return handlePreview(body, appUser);
+      return handlePreview(body, ctx);
     } else if (action === "create") {
-      return handleCreate(body, appUser);
+      return handleCreate(body, ctx);
     } else {
       return NextResponse.json({ error: "Invalid action" }, { status: 400 });
     }
   } catch (err) {
-    console.error("Recurring shift error:", err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return handleTenantError(err);
   }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function handlePreview(body: any, appUser: any) {
+async function handlePreview(body: any, ctx: { businessId: string }) {
   const {
     date,
     startTime,
@@ -70,12 +57,12 @@ async function handlePreview(body: any, appUser: any) {
     return NextResponse.json({ error: "No dates generated." }, { status: 400 });
   }
 
-  // 2. Fetch employees
+  // 2. Fetch employees — scoped to business
   const { data: employees } = await adminClient
     .from("employees")
     .select("id, full_name, employee_number, employment_status")
     .in("id", employeeIds)
-    .eq("business_id", appUser.business_id);
+    .eq("business_id", ctx.businessId);
 
   if (!employees || employees.length === 0) {
     return NextResponse.json({ error: "No valid employees found." }, { status: 400 });
@@ -113,7 +100,7 @@ async function handlePreview(body: any, appUser: any) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function handleCreate(body: any, appUser: any) {
+async function handleCreate(body: any, ctx: { businessId: string; userId: string }) {
   const {
     date,
     startTime,
@@ -124,7 +111,6 @@ async function handleCreate(body: any, appUser: any) {
     recurrenceType,
     customEndDate,
     assignments, // EmployeeDateStatus[][] — with skipped/overridden flags
-    saveAsDraft,
   } = body;
 
   if (!date || !startTime || !endTime || !employeeIds?.length || !recurrenceType) {
@@ -187,7 +173,7 @@ async function handleCreate(body: any, appUser: any) {
       }
 
       shiftsToInsert.push({
-        business_id: appUser.business_id,
+        business_id: ctx.businessId,
         employee_id: empId,
         date: shiftDate,
         scheduled_start: startISO,
@@ -199,7 +185,7 @@ async function handleCreate(body: any, appUser: any) {
         is_recurring: isRecurring,
         recurrence_type: recurrenceType as "NONE" | "NEXT_WEEK" | "WEEKLY_END_OF_MONTH" | "WEEKLY_CUSTOM_END",
         recurrence_end_date: customEndDate || null,
-        created_by: appUser.id,
+        created_by: ctx.userId,
       });
     }
   }
@@ -227,6 +213,5 @@ async function handleCreate(body: any, appUser: any) {
     created: createdShifts?.length || 0,
     shifts: createdShifts,
     recurringGroupId,
-    isDraft: saveAsDraft,
   });
 }

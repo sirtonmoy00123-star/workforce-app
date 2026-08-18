@@ -2,8 +2,8 @@
 // PUT /api/employees/[id] — update employee details
 // POST /api/employees/[id] — special actions (disable, enable, reset-password)
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
 
 export async function GET(
   _request: Request,
@@ -11,25 +11,14 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    const ctx = await requireAdmin();
+    const adminClient = createAdminClient();
 
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-
-    if (!appUser || appUser.role !== "admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-
-    const { data: employee, error } = await supabase
+    const { data: employee, error } = await adminClient
       .from("employees")
       .select("*")
       .eq("id", id)
-      .eq("business_id", appUser.business_id)
+      .eq("business_id", ctx.businessId)
       .single();
 
     if (error || !employee) {
@@ -37,15 +26,15 @@ export async function GET(
     }
 
     // Also get the user record for status info
-    const { data: userRecord } = await supabase
+    const { data: userRecord } = await adminClient
       .from("users")
       .select("*")
       .eq("id", employee.user_id)
       .single();
 
     return NextResponse.json({ ...employee, userRecord });
-  } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (err) {
+    return handleTenantError(err);
   }
 }
 
@@ -55,19 +44,7 @@ export async function PUT(
 ) {
   try {
     const { id } = await params;
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-
-    if (!appUser || appUser.role !== "admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const ctx = await requireAdmin();
 
     const body = await request.json();
     const { fullName, phone, hourlyRate, mileageRate } = body;
@@ -82,15 +59,15 @@ export async function PUT(
         mileage_rate: parseFloat(mileageRate) || 0,
       })
       .eq("id", id)
-      .eq("business_id", appUser.business_id)
+      .eq("business_id", ctx.businessId)
       .select("*")
       .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     return NextResponse.json(employee);
-  } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (err) {
+    return handleTenantError(err);
   }
 }
 
@@ -101,19 +78,7 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-
-    if (!appUser || appUser.role !== "admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const ctx = await requireAdmin();
 
     const body = await request.json();
     const { action, newPassword } = body;
@@ -125,7 +90,7 @@ export async function POST(
       .from("employees")
       .select("*")
       .eq("id", id)
-      .eq("business_id", appUser.business_id)
+      .eq("business_id", ctx.businessId)
       .single();
 
     if (!employee) {
@@ -190,7 +155,7 @@ export async function POST(
       default:
         return NextResponse.json({ error: "Unknown action" }, { status: 400 });
     }
-  } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (err) {
+    return handleTenantError(err);
   }
 }

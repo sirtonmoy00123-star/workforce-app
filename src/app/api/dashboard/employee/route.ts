@@ -1,29 +1,13 @@
 // GET /api/dashboard/employee — stats for employee dashboard
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { requireRole, handleTenantError } from "@/lib/services/tenantContext";
 
 export async function GET() {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    const ctx = await requireRole("EMPLOYEE");
 
-    const { data: appUser } = await supabase
-      .from("users")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .single();
-    if (!appUser || appUser.role !== "employee") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-
-    const { data: employee } = await supabase
-      .from("employees")
-      .select("*")
-      .eq("user_id", appUser.id)
-      .single();
-    if (!employee) {
+    if (!ctx.employeeId) {
       return NextResponse.json({ error: "Employee not found" }, { status: 404 });
     }
 
@@ -36,7 +20,7 @@ export async function GET() {
     const { data: upcomingShifts } = await adminClient
       .from("shifts")
       .select("id, date, scheduled_start, scheduled_finish, location, status")
-      .eq("employee_id", employee.id)
+      .eq("employee_id", ctx.employeeId)
       .in("status", ["pending", "accepted"])
       .gte("date", todayStr)
       .order("date", { ascending: true })
@@ -46,7 +30,7 @@ export async function GET() {
     const { data: activeAttendance } = await adminClient
       .from("shift_attendance")
       .select("*, shifts!inner(id, date, scheduled_start, scheduled_finish, location)")
-      .eq("employee_id", employee.id)
+      .eq("employee_id", ctx.employeeId)
       .eq("attendance_status", "working")
       .limit(1);
 
@@ -54,7 +38,7 @@ export async function GET() {
     const { data: recentTimesheets } = await adminClient
       .from("timesheets")
       .select("id, actual_start, worked_minutes, estimated_total, status")
-      .eq("employee_id", employee.id)
+      .eq("employee_id", ctx.employeeId)
       .order("created_at", { ascending: false })
       .limit(3);
 
@@ -62,14 +46,21 @@ export async function GET() {
     const { data: payments } = await adminClient
       .from("payments")
       .select("total_amount, status")
-      .eq("employee_id", employee.id);
+      .eq("employee_id", ctx.employeeId);
 
     const totalEarned = payments?.reduce((sum, p) => sum + p.total_amount, 0) || 0;
     const totalPaid = payments?.filter((p) => p.status === "paid").reduce((sum, p) => sum + p.total_amount, 0) || 0;
     const pendingPayment = totalEarned - totalPaid;
 
+    // Get employee name
+    const { data: employee } = await adminClient
+      .from("employees")
+      .select("full_name")
+      .eq("id", ctx.employeeId)
+      .single();
+
     return NextResponse.json({
-      employeeName: employee.full_name,
+      employeeName: employee?.full_name || "",
       upcomingShifts: upcomingShifts || [],
       activeShift: activeAttendance && activeAttendance.length > 0 ? activeAttendance[0] : null,
       recentTimesheets: recentTimesheets || [],
@@ -77,7 +68,7 @@ export async function GET() {
       totalPaid,
       pendingPayment,
     });
-  } catch {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (err) {
+    return handleTenantError(err);
   }
 }

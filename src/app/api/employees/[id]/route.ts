@@ -47,9 +47,10 @@ export async function PUT(
     const ctx = await requireAdmin();
 
     const body = await request.json();
-    const { fullName, phone, hourlyRate, mileageRate } = body;
+    const { fullName, phone, hourlyRate, mileageRate, employmentType, openToExtraShifts } = body;
 
     const adminClient = createAdminClient();
+
     const { data: employee, error } = await adminClient
       .from("employees")
       .update({
@@ -57,6 +58,8 @@ export async function PUT(
         phone: phone || null,
         hourly_rate: parseFloat(hourlyRate) || 0,
         mileage_rate: parseFloat(mileageRate) || 0,
+        employment_type: employmentType || undefined,
+        open_to_extra_shifts: openToExtraShifts !== undefined ? !!openToExtraShifts : undefined,
       })
       .eq("id", id)
       .eq("business_id", ctx.businessId)

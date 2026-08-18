@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 import StatusBadge from "@/components/StatusBadge";
 
 // ─── Types ──────────────────────────────────────────────────
@@ -733,6 +734,13 @@ export default function RosterPage() {
           >
             🔧 Tools
           </button>
+          <Link
+            href="/admin/events/new"
+            className="hidden md:inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200
+                       text-sm text-gray-700 hover:bg-gray-50"
+          >
+            🎪 Event Staffing
+          </Link>
           <button
             onClick={() => openCreate()}
             className="hidden md:inline-flex bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium
@@ -1583,6 +1591,14 @@ export default function RosterPage() {
                       <button onClick={closeSheet} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
                     </div>
                     <div className="space-y-1.5">
+                      <Link href="/admin/events/new" onClick={closeSheet}
+                        className="block w-full text-left p-3.5 rounded-xl hover:bg-gray-50 border border-gray-200 text-sm font-medium text-gray-900">
+                        🎪 Event Staffing
+                      </Link>
+                      <Link href="/admin/events" onClick={closeSheet}
+                        className="block w-full text-left p-3.5 rounded-xl hover:bg-gray-50 border border-gray-200 text-sm font-medium text-gray-900">
+                        📅 All Events
+                      </Link>
                       <button onClick={() => { setSheetContent("copyWeek"); }}
                         className="w-full text-left p-3.5 rounded-xl hover:bg-gray-50 border border-gray-200 text-sm font-medium text-gray-900">
                         📋 Copy Last Week

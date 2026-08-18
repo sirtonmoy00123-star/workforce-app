@@ -12,6 +12,8 @@ interface Employee {
   hourly_rate: number;
   mileage_rate: number;
   employment_status: string;
+  employment_type: "PERMANENT" | "PART_TIME" | "CASUAL";
+  open_to_extra_shifts: boolean;
   userRecord?: {
     id: string;
     username: string;
@@ -57,6 +59,8 @@ export default function EmployeeDetailPage() {
     phone: "",
     hourlyRate: "",
     mileageRate: "",
+    employmentType: "PERMANENT" as string,
+    openToExtraShifts: false,
   });
 
   // Reset password state
@@ -81,6 +85,8 @@ export default function EmployeeDetailPage() {
             phone: data.phone || "",
             hourlyRate: String(data.hourly_rate),
             mileageRate: String(data.mileage_rate),
+            employmentType: data.employment_type || "PERMANENT",
+            openToExtraShifts: data.open_to_extra_shifts || false,
           });
         }
         setLoading(false);
@@ -139,6 +145,8 @@ export default function EmployeeDetailPage() {
                 phone: data.phone,
                 hourly_rate: data.hourly_rate,
                 mileage_rate: data.mileage_rate,
+                employment_type: data.employment_type,
+                open_to_extra_shifts: data.open_to_extra_shifts,
               }
             : prev
         );
@@ -320,6 +328,30 @@ export default function EmployeeDetailPage() {
                     />
                   </div>
                 </div>
+                {/* Employment Type */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Employment Type</label>
+                  <select
+                    value={form.employmentType}
+                    onChange={(e) => setForm({ ...form, employmentType: e.target.value })}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm
+                               focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="PERMANENT">Permanent</option>
+                    <option value="PART_TIME">Part-Time</option>
+                    <option value="CASUAL">Casual</option>
+                  </select>
+                </div>
+                {/* Open to Extra Shifts */}
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.openToExtraShifts}
+                    onChange={(e) => setForm({ ...form, openToExtraShifts: e.target.checked })}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-700">Open to extra shifts</span>
+                </label>
                 <div className="flex gap-2 pt-2">
                   <button
                     onClick={handleSave}
@@ -356,6 +388,14 @@ export default function EmployeeDetailPage() {
                   <div>
                     <span className="text-gray-500">Mileage Rate</span>
                     <div className="font-medium">${employee.mileage_rate}/km</div>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Type</span>
+                    <div className="font-medium capitalize">{(employee.employment_type || "PERMANENT").replace(/_/g, "-").toLowerCase()}</div>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Extra Shifts</span>
+                    <div className="font-medium">{employee.open_to_extra_shifts ? "✓ Open" : "—"}</div>
                   </div>
                   {employee.userRecord && (
                     <div>

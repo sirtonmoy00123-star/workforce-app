@@ -54,6 +54,8 @@ export type Database = {
           hourly_rate: number;
           mileage_rate: number;
           employment_status: "active" | "inactive";
+          employment_type: "PERMANENT" | "PART_TIME" | "CASUAL";
+          open_to_extra_shifts: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -67,6 +69,8 @@ export type Database = {
           hourly_rate?: number;
           mileage_rate?: number;
           employment_status?: "active" | "inactive";
+          employment_type?: "PERMANENT" | "PART_TIME" | "CASUAL";
+          open_to_extra_shifts?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -80,6 +84,8 @@ export type Database = {
           hourly_rate?: number;
           mileage_rate?: number;
           employment_status?: "active" | "inactive";
+          employment_type?: "PERMANENT" | "PART_TIME" | "CASUAL";
+          open_to_extra_shifts?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -135,6 +141,7 @@ export type Database = {
           location: string | null;
           instructions: string | null;
           status: "pending" | "accepted" | "declined" | "completed" | "cancelled" | "updated_pending";
+          event_id: string | null;
           recurring_group_id: string | null;
           is_recurring: boolean;
           recurrence_type: "NONE" | "NEXT_WEEK" | "WEEKLY_END_OF_MONTH" | "WEEKLY_CUSTOM_END";
@@ -155,6 +162,7 @@ export type Database = {
           location?: string | null;
           instructions?: string | null;
           status?: "pending" | "accepted" | "declined" | "completed" | "cancelled" | "updated_pending";
+          event_id?: string | null;
           recurring_group_id?: string | null;
           is_recurring?: boolean;
           recurrence_type?: "NONE" | "NEXT_WEEK" | "WEEKLY_END_OF_MONTH" | "WEEKLY_CUSTOM_END";
@@ -175,6 +183,7 @@ export type Database = {
           location?: string | null;
           instructions?: string | null;
           status?: "pending" | "accepted" | "declined" | "completed" | "cancelled" | "updated_pending";
+          event_id?: string | null;
           recurring_group_id?: string | null;
           is_recurring?: boolean;
           recurrence_type?: "NONE" | "NEXT_WEEK" | "WEEKLY_END_OF_MONTH" | "WEEKLY_CUSTOM_END";
@@ -430,6 +439,204 @@ export type Database = {
         };
         Relationships: [];
       };
+      staffing_events: {
+        Row: {
+          id: string;
+          business_id: string;
+          name: string;
+          description: string | null;
+          event_date: string;
+          location: string | null;
+          start_time: string;
+          finish_time: string;
+          status: "DRAFT" | "OPEN" | "PARTIALLY_FILLED" | "FULLY_STAFFED" | "CANCELLED" | "COMPLETED";
+          reminder_days_before: number | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          business_id: string;
+          name: string;
+          description?: string | null;
+          event_date: string;
+          location?: string | null;
+          start_time: string;
+          finish_time: string;
+          status?: "DRAFT" | "OPEN" | "PARTIALLY_FILLED" | "FULLY_STAFFED" | "CANCELLED" | "COMPLETED";
+          reminder_days_before?: number | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          business_id?: string;
+          name?: string;
+          description?: string | null;
+          event_date?: string;
+          location?: string | null;
+          start_time?: string;
+          finish_time?: string;
+          status?: "DRAFT" | "OPEN" | "PARTIALLY_FILLED" | "FULLY_STAFFED" | "CANCELLED" | "COMPLETED";
+          reminder_days_before?: number | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      event_staffing_requirements: {
+        Row: {
+          id: string;
+          business_id: string;
+          event_id: string;
+          role: string;
+          required_count: number;
+          filled_count: number;
+          start_time: string;
+          finish_time: string;
+          instructions: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          business_id: string;
+          event_id: string;
+          role?: string;
+          required_count: number;
+          filled_count?: number;
+          start_time: string;
+          finish_time: string;
+          instructions?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          business_id?: string;
+          event_id?: string;
+          role?: string;
+          required_count?: number;
+          filled_count?: number;
+          start_time?: string;
+          finish_time?: string;
+          instructions?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      open_shift_offers: {
+        Row: {
+          id: string;
+          business_id: string;
+          event_id: string;
+          requirement_id: string;
+          role: string;
+          positions_required: number;
+          positions_filled: number;
+          status: "OPEN" | "PARTIALLY_FILLED" | "FILLED" | "CLOSED" | "CANCELLED";
+          expires_at: string | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          business_id: string;
+          event_id: string;
+          requirement_id: string;
+          role?: string;
+          positions_required: number;
+          positions_filled?: number;
+          status?: "OPEN" | "PARTIALLY_FILLED" | "FILLED" | "CLOSED" | "CANCELLED";
+          expires_at?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          business_id?: string;
+          event_id?: string;
+          requirement_id?: string;
+          role?: string;
+          positions_required?: number;
+          positions_filled?: number;
+          status?: "OPEN" | "PARTIALLY_FILLED" | "FILLED" | "CLOSED" | "CANCELLED";
+          expires_at?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      open_shift_offer_recipients: {
+        Row: {
+          id: string;
+          business_id: string;
+          offer_id: string;
+          employee_id: string;
+          status: "PENDING" | "ACCEPTED" | "DECLINED" | "EXPIRED" | "CLOSED";
+          shift_id: string | null;
+          sent_at: string;
+          responded_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          business_id: string;
+          offer_id: string;
+          employee_id: string;
+          status?: "PENDING" | "ACCEPTED" | "DECLINED" | "EXPIRED" | "CLOSED";
+          shift_id?: string | null;
+          sent_at?: string;
+          responded_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          business_id?: string;
+          offer_id?: string;
+          employee_id?: string;
+          status?: "PENDING" | "ACCEPTED" | "DECLINED" | "EXPIRED" | "CLOSED";
+          shift_id?: string | null;
+          sent_at?: string;
+          responded_at?: string | null;
+        };
+        Relationships: [];
+      };
+      event_audit_log: {
+        Row: {
+          id: string;
+          business_id: string;
+          event_id: string;
+          action: string;
+          details: Record<string, unknown> | null;
+          performed_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          business_id: string;
+          event_id: string;
+          action: string;
+          details?: Record<string, unknown> | null;
+          performed_by?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          business_id?: string;
+          event_id?: string;
+          action?: string;
+          details?: Record<string, unknown> | null;
+          performed_by?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       business_members: {
         Row: {
           id: string;
@@ -473,6 +680,10 @@ export type Database = {
       timesheet_status: "submitted" | "approved" | "needs_correction" | "correction_required" | "correction_submitted";
       payment_status: "unpaid" | "paid";
       recurrence_type: "NONE" | "NEXT_WEEK" | "WEEKLY_END_OF_MONTH" | "WEEKLY_CUSTOM_END";
+      staffing_event_status: "DRAFT" | "OPEN" | "PARTIALLY_FILLED" | "FULLY_STAFFED" | "CANCELLED" | "COMPLETED";
+      open_offer_status: "OPEN" | "PARTIALLY_FILLED" | "FILLED" | "CLOSED" | "CANCELLED";
+      offer_recipient_status: "PENDING" | "ACCEPTED" | "DECLINED" | "EXPIRED" | "CLOSED";
+      employment_type: "PERMANENT" | "PART_TIME" | "CASUAL";
     };
   };
 };

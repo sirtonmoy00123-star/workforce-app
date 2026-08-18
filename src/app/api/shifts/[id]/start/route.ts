@@ -103,6 +103,7 @@ export async function POST(
       .insert({
         shift_id: shiftId,
         employee_id: employee.id,
+        business_id: shift.business_id,
         actual_start: serverNow,
         attendance_status: "working",
       });
@@ -118,6 +119,7 @@ export async function POST(
       .insert({
         shift_id: shiftId,
         employee_id: employee.id,
+        business_id: shift.business_id,
         submission_type: "START",
         photo_path: fileName,
         odometer_reading: odometerReading,

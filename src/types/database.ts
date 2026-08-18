@@ -86,6 +86,7 @@ export type Database = {
         Row: {
           id: string;
           employee_id: string;
+          business_id: string;
           day_of_week: number;
           start_time: string | null;
           end_time: string | null;
@@ -97,6 +98,7 @@ export type Database = {
         Insert: {
           id?: string;
           employee_id: string;
+          business_id: string;
           day_of_week: number;
           start_time?: string | null;
           end_time?: string | null;
@@ -108,6 +110,7 @@ export type Database = {
         Update: {
           id?: string;
           employee_id?: string;
+          business_id?: string;
           day_of_week?: number;
           start_time?: string | null;
           end_time?: string | null;
@@ -186,6 +189,7 @@ export type Database = {
           id: string;
           shift_id: string;
           employee_id: string;
+          business_id: string;
           actual_start: string | null;
           actual_finish: string | null;
           attendance_status: "pending" | "working" | "completed";
@@ -196,6 +200,7 @@ export type Database = {
           id?: string;
           shift_id: string;
           employee_id: string;
+          business_id: string;
           actual_start?: string | null;
           actual_finish?: string | null;
           attendance_status?: "pending" | "working" | "completed";
@@ -206,6 +211,7 @@ export type Database = {
           id?: string;
           shift_id?: string;
           employee_id?: string;
+          business_id?: string;
           actual_start?: string | null;
           actual_finish?: string | null;
           attendance_status?: "pending" | "working" | "completed";
@@ -219,6 +225,7 @@ export type Database = {
           id: string;
           shift_id: string;
           employee_id: string;
+          business_id: string;
           submission_type: "START" | "FINISH";
           photo_path: string;
           odometer_reading: number;
@@ -229,6 +236,7 @@ export type Database = {
           id?: string;
           shift_id: string;
           employee_id: string;
+          business_id: string;
           submission_type: "START" | "FINISH";
           photo_path: string;
           odometer_reading: number;
@@ -239,6 +247,7 @@ export type Database = {
           id?: string;
           shift_id?: string;
           employee_id?: string;
+          business_id?: string;
           submission_type?: "START" | "FINISH";
           photo_path?: string;
           odometer_reading?: number;
@@ -252,6 +261,7 @@ export type Database = {
           id: string;
           shift_id: string;
           employee_id: string;
+          business_id: string;
           scheduled_start: string;
           scheduled_finish: string;
           actual_start: string;
@@ -275,6 +285,7 @@ export type Database = {
           id?: string;
           shift_id: string;
           employee_id: string;
+          business_id: string;
           scheduled_start: string;
           scheduled_finish: string;
           actual_start: string;
@@ -298,6 +309,7 @@ export type Database = {
           id?: string;
           shift_id?: string;
           employee_id?: string;
+          business_id?: string;
           scheduled_start?: string;
           scheduled_finish?: string;
           actual_start?: string;
@@ -323,6 +335,7 @@ export type Database = {
         Row: {
           id: string;
           employee_id: string;
+          business_id: string;
           period_start: string;
           period_end: string;
           total_hours: number;
@@ -338,6 +351,7 @@ export type Database = {
         Insert: {
           id?: string;
           employee_id: string;
+          business_id: string;
           period_start: string;
           period_end: string;
           total_hours?: number;
@@ -353,6 +367,7 @@ export type Database = {
         Update: {
           id?: string;
           employee_id?: string;
+          business_id?: string;
           period_start?: string;
           period_end?: string;
           total_hours?: number;
@@ -364,6 +379,81 @@ export type Database = {
           payment_date?: string | null;
           marked_paid_by?: string | null;
           created_at?: string;
+        };
+        Relationships: [];
+      };
+      businesses: {
+        Row: {
+          id: string;
+          business_name: string;
+          slug: string;
+          email: string | null;
+          phone: string | null;
+          address: string | null;
+          timezone: string;
+          currency: string;
+          week_starts_on: number;
+          status: "ACTIVE" | "SUSPENDED" | "ARCHIVED";
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          business_name: string;
+          slug: string;
+          email?: string | null;
+          phone?: string | null;
+          address?: string | null;
+          timezone?: string;
+          currency?: string;
+          week_starts_on?: number;
+          status?: "ACTIVE" | "SUSPENDED" | "ARCHIVED";
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          business_name?: string;
+          slug?: string;
+          email?: string | null;
+          phone?: string | null;
+          address?: string | null;
+          timezone?: string;
+          currency?: string;
+          week_starts_on?: number;
+          status?: "ACTIVE" | "SUSPENDED" | "ARCHIVED";
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      business_members: {
+        Row: {
+          id: string;
+          business_id: string;
+          user_id: string;
+          role: "OWNER" | "ADMIN" | "EMPLOYEE";
+          status: "ACTIVE" | "INACTIVE" | "INVITED";
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          business_id: string;
+          user_id: string;
+          role: "OWNER" | "ADMIN" | "EMPLOYEE";
+          status?: "ACTIVE" | "INACTIVE" | "INVITED";
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          business_id?: string;
+          user_id?: string;
+          role?: "OWNER" | "ADMIN" | "EMPLOYEE";
+          status?: "ACTIVE" | "INACTIVE" | "INVITED";
+          created_at?: string;
+          updated_at?: string;
         };
         Relationships: [];
       };

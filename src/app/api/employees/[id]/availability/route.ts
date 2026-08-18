@@ -103,6 +103,7 @@ export async function PUT(
 
     const rows = days.map((day: { dayOfWeek: number; isAvailable: boolean; startTime: string | null; endTime: string | null }) => ({
       employee_id: id,
+      business_id: appUser.business_id,
       day_of_week: day.dayOfWeek,
       is_available: day.isAvailable,
       start_time: day.isAvailable ? day.startTime : null,

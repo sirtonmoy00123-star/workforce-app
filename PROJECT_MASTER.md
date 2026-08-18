@@ -1,27 +1,40 @@
 # PROJECT_MASTER.md — Workforce App V1
 
-> **Single source of truth** for the Workforce App.
-> Last updated: 2026-08-15
+> **Single source of truth for this entire application.**
+> Last updated: 2026-08-17
 
 ---
 
 ## 1. Project Overview
 
 ### What it does
-A web-based employee rostering, shift tracking, and payment management application designed for small businesses with mobile workforces (e.g., delivery, cleaning, field services).
+A web application for small-business employee rostering, shift tracking, odometer/mileage recording, timesheet generation, and payment tracking.
 
 ### Who uses it
-- **Admin/Employer** — Creates employees, builds rosters, reviews timesheets, manages payments.
-- **Employee** — Views assigned shifts, accepts/declines, records odometer photos at start/finish, views timesheets and payments.
+- **Admin / Employer** — creates employees, sets availability, builds rosters, reviews timesheets, tracks payments.
+- **Employee** — views assigned shifts, accepts/declines, records odometer photos at shift start/finish, views timesheets and payment status.
 
 ### Main problem it solves
-Replaces paper-based or spreadsheet rostering and manual mileage/timesheet tracking with a digital system that:
-- Automates worked-hours and mileage calculations from odometer photo evidence.
-- Provides audit trails via server-stamped timestamps and photo uploads.
-- Separates admin and employee access with row-level security.
+Replaces manual paper-based rostering and timesheet/mileage tracking with a single web app that automates hour/mileage calculations and payment tracking.
 
 ### Current development stage
-**Phase 12 of 13 complete.** Core functionality is fully built and deployed. Phase 13 (security review & end-to-end test) is next.
+**Phase 12 of 13 complete.** All core features are implemented and deployed. Phase 13 (security review & end-to-end test) remains.
+
+### Core workflow
+```
+Admin creates employee
+→ Admin sets employee weekly availability
+→ Admin creates and assigns shift (single or recurring)
+→ Employee receives and accepts/declines shift
+→ Employee starts shift + uploads starting odometer photo
+→ Employee finishes shift + uploads ending odometer photo
+→ App auto-calculates working hours, mileage, and estimated payment
+→ App auto-generates timesheet
+→ Admin reviews and approves timesheet (or requests correction)
+→ Admin creates payment record from approved timesheets
+→ Admin marks payment as paid
+→ Employee sees payment status
+```
 
 ---
 
@@ -29,350 +42,452 @@ Replaces paper-based or spreadsheet rostering and manual mileage/timesheet track
 
 | Layer | Technology | Version |
 |---|---|---|
-| Framework | Next.js (App Router, server components) | 16.3.1 |
+| Framework | Next.js (App Router, server components, server actions) | 16.3.1 |
 | UI Library | React | 19.2.8 |
 | Language | TypeScript | ^5 |
-| Styling | Tailwind CSS | ^4 |
+| CSS | Tailwind CSS | ^4 |
 | Database | PostgreSQL (via Supabase) | — |
 | Auth | Supabase Auth (email/password) | — |
 | Storage | Supabase Storage (private bucket) | — |
 | Supabase Client | @supabase/supabase-js | ^2.112.3 |
 | Supabase SSR | @supabase/ssr | ^0.12.4 |
-| Hosting | Vercel | — |
+| Hosting | Vercel (auto-deploy from GitHub) | — |
 | Source Control | GitHub | — |
 
-### No external libraries
-The app uses only Next.js, React, Supabase, and Tailwind. No date libraries, no component libraries, no state management libraries.
+**GitHub remote:** `https://github.com/sirtonmoy00123-star/workforce-app.git`
+
+**No other external libraries, CDNs, or third-party services are used.** The app is entirely self-contained within Next.js + Supabase.
 
 ---
 
 ## 3. Complete Application Architecture
 
+### High-level structure
+
 ```
-┌─────────────────────────────────────────────────────┐
-│                    BROWSER (Client)                 │
-│  React 19 client components (useState/useEffect)    │
-│  AdminNav / EmployeeNav navigation                  │
-│  Tailwind CSS 4 styling                             │
-│  Supabase Browser Client (auth only)                │
-└────────────────────┬────────────────────────────────┘
-                     │ fetch() to /api/*
-                     ▼
-┌─────────────────────────────────────────────────────┐
-│              NEXT.JS SERVER (API Routes)            │
-│  Route handlers in src/app/api/                     │
-│  Supabase Server Client (cookie-based auth)         │
-│  Supabase Admin Client (service role, bypasses RLS) │
-│  Business logic in src/lib/services/                │
-│  Pure calculations in src/lib/calculations/         │
-└────────────────────┬────────────────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────────────────┐
-│               SUPABASE (Backend)                    │
-│  PostgreSQL — 8 tables + RLS policies               │
-│  Auth — email/password accounts                     │
-│  Storage — "odometer-photos" private bucket         │
-└─────────────────────────────────────────────────────┘
+Browser (React 19)
+  ↕  HTTP / fetch
+Next.js App Router (server components + API routes)
+  ↕  Supabase JS client
+Supabase
+  ├── PostgreSQL (data + RLS)
+  ├── Auth (email/password login)
+  └── Storage (odometer photos, private bucket)
 ```
 
-### Key architectural decisions
-- **Server-side API routes** handle all database operations. Client components never query the database directly.
-- **Three Supabase clients:**
-  - `client.ts` — Browser client, used only for `auth.signOut()` on logout.
-  - `server.ts` — Server client with cookies, used to verify the current user's session.
-  - `admin.ts` — Admin client with service role key, bypasses RLS, used for all data operations after permission checks.
-- **No server actions** — All mutations go through REST-style API routes (`/api/*`).
-- **Client-side rendering** — All pages are `"use client"` components that fetch data via `useEffect` + `fetch()`. Server components are only used for layouts (auth guards).
-- **Auth guards in layouts** — `admin/layout.tsx` and `employee/layout.tsx` are server components that check authentication, role, and account status before rendering children.
-- **Middleware** — `middleware.ts` refreshes Supabase auth session on every request.
+### Three Supabase clients
+
+| Client | File | Key used | RLS enforced? | Use case |
+|---|---|---|---|---|
+| **Browser** | `src/lib/supabase/client.ts` | Anon key | Yes | Client-side auth state, signOut |
+| **Server** | `src/lib/supabase/server.ts` | Anon key + cookies | Yes | Server components, auth verification |
+| **Admin** | `src/lib/supabase/admin.ts` | Service role key | **No** (bypasses RLS) | Server-side writes, bulk inserts |
+
+> **Important:** The admin client throws at startup if `SUPABASE_SERVICE_ROLE_KEY` is missing. It must never be exposed to the browser.
+
+### Request flow
+1. Browser makes a `fetch()` call to `/api/...` route.
+2. API route creates a **server client** (cookies + anon key) to authenticate the user and check their role.
+3. For write operations, the API route creates an **admin client** (service role key) to bypass RLS and perform the mutation.
+4. Response is returned as JSON.
+
+### Middleware
+`src/middleware.ts` runs on every request (except static assets). It refreshes the Supabase auth session cookie so sessions don't expire during active use.
+
+### Frontend rendering
+- **Server components** are the default for layouts (auth guard checks).
+- **Client components** (`"use client"`) are used for all interactive pages (forms, modals, bottom sheets).
+- Pages fetch data via `useEffect` + `fetch()` to API routes.
 
 ### Deployment flow
 ```
-Local code → git push → GitHub → Vercel auto-deploy → Live app
-                                                      ↕
-                                               Supabase (managed)
+Local development (npm run dev)
+  → git push to GitHub (main branch)
+  → Vercel auto-deploys from main
+  → Supabase is separate (SQL migrations run manually in SQL Editor)
 ```
 
 ---
 
 ## 4. User Roles
 
-### Admin (Employer)
-
+### Admin / Employer
 | Permission | Details |
 |---|---|
-| Create employees | Sets name, phone, employee ID, hourly/mileage rates, login credentials |
-| Edit employees | Update name, phone, rates |
-| Disable/enable employees | Prevents login when disabled |
-| Reset employee passwords | Sets new temporary password, forces change on next login |
-| Set employee availability | Weekly recurring schedule (per day: available/unavailable, time range) |
-| Create shifts | Single or recurring, assign to one or multiple employees |
-| View all shifts | Weekly roster grid, all employees |
-| Review timesheets | Approve or mark as needs correction |
-| Override approved total | Can set a different total from the estimated amount |
-| Create payments | Group approved timesheets by employee + date range |
-| Mark payments as paid | Records payment date and who marked it |
-| View dashboard | Stats: active employees, pending shifts, today's shifts, submitted timesheets, unpaid payments |
+| Manage employees | Create, view, edit, disable/enable, reset password |
+| Set availability | Set recurring weekly availability per employee |
+| Create shifts | Single, recurring, or copy-week; assign to employees |
+| Edit shifts | Change date/time/location/instructions; triggers reconfirmation if shift was accepted |
+| View roster | Weekly roster grid (mobile day-card view + desktop table view) |
+| Review timesheets | Approve, request correction, approve corrected timesheets |
+| Create payments | Group approved timesheets by employee + period |
+| Mark paid | Update payment status to paid |
+| View dashboard | Stats: total/active employees, pending shifts, today's shifts, submitted timesheets, unpaid payments |
 
 ### Employee
-
 | Permission | Details |
 |---|---|
-| View assigned shifts | Only their own |
-| Accept/decline shifts | Only pending shifts |
-| Start shift | Upload odometer photo + reading (only accepted shifts) |
-| Finish shift | Upload odometer photo + reading (only working shifts) |
-| View timesheets | Only their own, auto-generated on shift completion |
-| View payments | Only their own |
-| View profile | Read-only: name, employee number, rates, status |
-| Change password | Forced on first login, can also change later |
+| View own shifts | See assigned shifts, accept or decline |
+| Accept updated shifts | Re-accept shifts modified by admin (updated_pending status) |
+| Start shift | Upload starting odometer photo + reading |
+| Finish shift | Upload ending odometer photo + reading; triggers auto-timesheet |
+| View own timesheets | See generated timesheets and their status |
+| Submit corrections | When admin requests correction, employee updates the requested fields |
+| View own payments | See payment amounts and paid/unpaid status |
+| Change password | Required on first login; can change later from profile |
 
-### Cannot do (either role)
-- Employees cannot create, edit, or delete shifts.
-- Employees cannot approve timesheets or create payments.
-- Employees cannot edit their own profile details (admin controls rates, name, etc.).
-- Admins cannot see employee passwords (Supabase Auth is the source of truth).
-- Neither role can delete records (no delete endpoints exist).
+### What employees CANNOT do
+- Create, edit, or cancel shifts
+- View other employees' data
+- Approve timesheets or payments
+- Access admin pages
+- See other employees' shifts, timesheets, or payments
 
 ---
 
 ## 5. Authentication System
 
 ### Account creation
-1. **Admin bootstrap** — One-time endpoint `POST /api/auth/setup-admin` creates the first admin account. Checks if any admin exists first and refuses if one does.
-2. **Employee accounts** — Admin creates via `POST /api/employees`. The API:
-   - Creates a Supabase Auth user with email `{userId}@workforce.app`
-   - Creates a row in the `users` table (role, username, business_id, `must_change_password: true`)
-   - Creates a row in the `employees` table (name, rates, employee number)
-   - If any step fails, rolls back previous steps
+- **Admin account**: Created once via the `/api/auth/setup-admin` bootstrap endpoint. This creates a Supabase Auth user, a `users` row with `role = 'admin'`, and generates a random `business_id` UUID.
+- **Employee accounts**: Created by the admin via `/admin/employees/new`. The API creates a Supabase Auth user (with a temporary password), a `users` row (role = employee, same business_id as admin), and an `employees` row. If any step fails, previous steps are rolled back.
 
 ### Login process
-1. Employee enters their **User ID** (e.g., `john.smith`) on the login page.
-2. The login page appends `@workforce.app` to create the email format Supabase Auth expects.
-3. Supabase Auth validates credentials.
-4. Root page (`/`) redirects based on role:
-   - Checks if account is disabled → redirects to `/login` with error
-   - Checks if `must_change_password` → redirects to `/change-password`
-   - Admin → `/admin/dashboard`
-   - Employee → `/employee/home`
+1. User enters a **User ID** and password on `/login`.
+2. If the User ID doesn't contain `@`, the app appends `@workforce.app` to create the email format Supabase Auth expects.
+3. Supabase Auth validates credentials and returns a session.
+4. The app looks up the `users` table by `auth_user_id` to determine the role.
+5. If `account_status = 'disabled'`, access is denied.
+6. If `must_change_password = true`, the user is redirected to `/change-password`.
+7. Admins are routed to `/admin/dashboard`, employees to `/employee/home`.
 
 ### Password handling
-- Temporary password set by admin on employee creation (min 6 characters).
-- Employee forced to change on first login (min 8 characters).
-- `POST /api/auth/password-changed` clears the `must_change_password` flag using admin client.
-- Admin can reset employee passwords from the employee detail page.
+- Passwords are stored exclusively in Supabase Auth (bcrypt-hashed). The app never stores or exposes passwords.
+- Admin sets a temporary password when creating an employee. Employee must change it on first login.
+- Admin can reset an employee's password (sets a new temporary password + `must_change_password = true`).
+- Minimum password length: 8 characters.
 
 ### Session handling
-- Supabase Auth manages sessions via cookies.
-- `middleware.ts` calls `supabase.auth.getUser()` on every request to refresh the session.
-- Logout calls `supabase.auth.signOut()` on the browser client and redirects to `/login`.
+- Supabase Auth uses cookie-based sessions.
+- `src/middleware.ts` refreshes the session on every request.
+- Server-side: `createClient()` reads cookies to restore the session.
+- Client-side: `createBrowserClient()` manages the session in the browser.
 
-### Auth guards (server-side)
-- `admin/layout.tsx`: Verifies user is authenticated, role is `admin`, and `account_status` is `active`.
-- `employee/layout.tsx`: Verifies user is authenticated, role is `employee`, `account_status` is `active`, and `must_change_password` is `false`.
+### Role-based routing
+- `/admin/*` routes: `src/app/admin/layout.tsx` checks auth + role = admin + account active. Redirects to login if not.
+- `/employee/*` routes: `src/app/employee/layout.tsx` checks auth + role = employee + account active + password changed. Redirects if not.
+- Root `/` page: checks auth → profile → disabled → must_change_password → routes to the appropriate dashboard.
 
 ---
 
 ## 6. Database Architecture
 
-### Database: PostgreSQL (Supabase)
-**Supabase Project ID:** `rqnevhgkfvkmspmtnera`
+### Tables overview
+
+The database has **10 tables** (8 from the initial migration + 2 added in later migrations):
+
+```
+users ──────────┐
+                │ 1:1
+employees ──────┤
+  │             │
+  │ 1:7         │
+  ├─ employee_  │
+  │  availability│
+  │             │
+  │ 1:N         │
+  ├─ shifts ────┤
+  │   │         │
+  │   ├─ shift_attendance (1:1)
+  │   │
+  │   ├─ odometer_submissions (1:2, START + FINISH)
+  │   │
+  │   ├─ timesheets (1:1)
+  │   │   └─ timesheet_corrections (1:N)
+  │   │
+  │   └─ shift_audit_log (1:N)
+  │
+  └─ payments (1:N)
+```
 
 ### Enums
 
 | Enum | Values |
 |---|---|
 | `user_role` | `admin`, `employee` |
-| `shift_status` | `pending`, `accepted`, `declined`, `completed`, `cancelled` |
-| `attendance_status` | `pending`, `working`, `completed` |
-| `odometer_submission_type` | `START`, `FINISH` |
-| `timesheet_status` | `submitted`, `approved`, `needs_correction` |
-| `payment_status` | `unpaid`, `paid` |
-| `employment_status` | `active`, `inactive` |
 | `account_status` | `active`, `disabled` |
+| `employment_status` | `active`, `inactive` |
+| `shift_status` | `pending`, `accepted`, `declined`, `completed`, `cancelled`, `updated_pending` |
+| `attendance_status` | `pending`, `working`, `completed` |
+| `submission_type` | `START`, `FINISH` |
+| `timesheet_status` | `submitted`, `approved`, `needs_correction`, `correction_required`, `correction_submitted` |
+| `payment_status` | `unpaid`, `paid` |
 | `recurrence_type` | `NONE`, `NEXT_WEEK`, `WEEKLY_END_OF_MONTH`, `WEEKLY_CUSTOM_END` |
 
-### Tables
+### Table: `users`
+**Purpose:** Links a Supabase Auth user to an app role.
 
-#### `businesses`
 | Column | Type | Notes |
 |---|---|---|
-| `id` | UUID (PK) | `gen_random_uuid()` |
-| `name` | TEXT NOT NULL | |
-| `created_at` | TIMESTAMPTZ | Default `now()` |
+| id | UUID (PK) | Auto-generated |
+| auth_user_id | UUID (UNIQUE) | FK → auth.users(id), CASCADE delete |
+| business_id | UUID | **Plain UUID, NOT a FK** (no businesses table exists) |
+| role | user_role ENUM | 'admin' or 'employee' |
+| username | TEXT | Display name / login identifier |
+| must_change_password | BOOLEAN | Default true; set false after first password change |
+| account_status | account_status ENUM | 'active' or 'disabled' |
+| created_at | TIMESTAMPTZ | Auto |
+| updated_at | TIMESTAMPTZ | Auto (trigger) |
 
-**RLS:** Authenticated users can read rows where their `users.business_id` matches.
+**RLS policies:**
+- Admin sees all users in same business_id
+- Employee sees only their own row
+- Admin can update same-business users
+- Employee can update only their own row
 
-#### `users`
+### Table: `employees`
+**Purpose:** Extended profile for employee-role users (rates, phone, status).
+
 | Column | Type | Notes |
 |---|---|---|
-| `id` | UUID (PK) | `gen_random_uuid()` |
-| `auth_user_id` | UUID UNIQUE NOT NULL | FK → `auth.users(id)` |
-| `role` | `user_role` NOT NULL | |
-| `username` | TEXT NOT NULL | Display name / login ID |
-| `business_id` | UUID NOT NULL | FK → `businesses(id)` |
-| `account_status` | `account_status` | Default `active` |
-| `must_change_password` | BOOLEAN | Default `false` |
-| `created_at` | TIMESTAMPTZ | Default `now()` |
+| id | UUID (PK) | Auto-generated |
+| business_id | UUID | Same as their admin's business_id |
+| user_id | UUID | FK → users(id), CASCADE |
+| employee_number | TEXT | Unique per business |
+| full_name | TEXT | |
+| phone | TEXT | Nullable |
+| hourly_rate | NUMERIC(10,2) | Default 0 |
+| mileage_rate | NUMERIC(10,4) | Default 0 (per km) |
+| employment_status | employment_status ENUM | 'active' or 'inactive' |
+| created_at | TIMESTAMPTZ | Auto |
+| updated_at | TIMESTAMPTZ | Auto (trigger) |
 
-**Indexes:** `auth_user_id` (unique), `business_id`
-**RLS:** Users can read their own row. Admins can read all users in their business.
+**Constraint:** UNIQUE(business_id, employee_number)
 
-#### `employees`
+**RLS policies:**
+- Admin sees all employees in same business
+- Employee sees only their own row
+- Admin can insert/update for same business
+
+### Table: `employee_availability`
+**Purpose:** Recurring weekly availability per employee (7 rows per employee, one per day).
+
 | Column | Type | Notes |
 |---|---|---|
-| `id` | UUID (PK) | `gen_random_uuid()` |
-| `user_id` | UUID UNIQUE NOT NULL | FK → `users(id)` |
-| `business_id` | UUID NOT NULL | FK → `businesses(id)` |
-| `full_name` | TEXT NOT NULL | |
-| `phone` | TEXT | |
-| `employee_number` | TEXT NOT NULL | e.g., "EMP001" |
-| `hourly_rate` | NUMERIC(10,2) NOT NULL | |
-| `mileage_rate` | NUMERIC(10,2) NOT NULL | |
-| `employment_status` | `employment_status` | Default `active` |
-| `created_at` | TIMESTAMPTZ | Default `now()` |
+| id | UUID (PK) | Auto-generated |
+| employee_id | UUID | FK → employees(id), CASCADE |
+| day_of_week | SMALLINT | 0 = Sunday … 6 = Saturday |
+| start_time | TIME | Nullable (null when unavailable) |
+| end_time | TIME | Nullable |
+| is_available | BOOLEAN | Default false |
+| created_by | UUID | FK → users(id), nullable |
+| created_at | TIMESTAMPTZ | Auto |
+| updated_at | TIMESTAMPTZ | Auto (trigger) |
 
-**Indexes:** `user_id` (unique), `business_id`, `(business_id, employee_number)` (unique)
-**RLS:** Admins can CRUD employees in their business. Employees can read their own record.
+**Constraint:** UNIQUE(employee_id, day_of_week)
 
-#### `employee_availability`
+**RLS policies:**
+- Admin sees/inserts/updates/deletes availability for same-business employees
+- Employee sees only their own
+
+### Table: `shifts`
+**Purpose:** A rostered shift assigned to one employee on one date.
+
 | Column | Type | Notes |
 |---|---|---|
-| `id` | UUID (PK) | `gen_random_uuid()` |
-| `employee_id` | UUID NOT NULL | FK → `employees(id)` CASCADE |
-| `day_of_week` | INT NOT NULL | 0=Sunday, 6=Saturday |
-| `is_available` | BOOLEAN | Default `false` |
-| `start_time` | TIME | |
-| `end_time` | TIME | |
-| `created_at` | TIMESTAMPTZ | Default `now()` |
+| id | UUID (PK) | Auto-generated |
+| business_id | UUID | |
+| employee_id | UUID | FK → employees(id), CASCADE |
+| date | DATE | The shift date |
+| scheduled_start | TIMESTAMPTZ | |
+| scheduled_finish | TIMESTAMPTZ | |
+| location | TEXT | Nullable |
+| instructions | TEXT | Nullable |
+| status | shift_status ENUM | pending, accepted, declined, completed, cancelled, updated_pending |
+| created_by | UUID | FK → users(id), nullable |
+| recurring_group_id | UUID | Nullable (links recurring shifts) |
+| is_recurring | BOOLEAN | Default false |
+| recurrence_type | recurrence_type ENUM | NONE, NEXT_WEEK, WEEKLY_END_OF_MONTH, WEEKLY_CUSTOM_END |
+| recurrence_end_date | DATE | Nullable |
+| updated_by | UUID | FK → users(id), nullable — who last edited |
+| last_change_reason | TEXT | Nullable — reason for last edit |
+| created_at | TIMESTAMPTZ | Auto |
+| updated_at | TIMESTAMPTZ | Auto (trigger) |
 
-**Constraints:** UNIQUE on `(employee_id, day_of_week)`, CHECK `day_of_week BETWEEN 0 AND 6`
-**RLS:** Admins can CRUD for employees in their business. Employees can read their own.
+**RLS policies:**
+- Admin sees/inserts/updates for same business
+- Employee sees their own shifts
+- Employee can update their own shifts (accept/decline)
 
-#### `shifts`
+### Table: `shift_attendance`
+**Purpose:** Tracks the actual start and finish times when an employee works a shift.
+
 | Column | Type | Notes |
 |---|---|---|
-| `id` | UUID (PK) | `gen_random_uuid()` |
-| `business_id` | UUID NOT NULL | FK → `businesses(id)` |
-| `employee_id` | UUID NOT NULL | FK → `employees(id)` |
-| `date` | DATE NOT NULL | |
-| `scheduled_start` | TIMESTAMPTZ NOT NULL | |
-| `scheduled_finish` | TIMESTAMPTZ NOT NULL | |
-| `location` | TEXT | |
-| `instructions` | TEXT | |
-| `status` | `shift_status` | Default `pending` |
-| `created_by` | UUID | FK → `users(id)` |
-| `recurring_group_id` | UUID | Links related recurring shifts |
-| `is_recurring` | BOOLEAN | Default `false` |
-| `recurrence_type` | `recurrence_type` | Default `NONE` |
-| `recurrence_end_date` | DATE | |
-| `created_at` | TIMESTAMPTZ | Default `now()` |
+| id | UUID (PK) | Auto-generated |
+| shift_id | UUID (UNIQUE) | FK → shifts(id), CASCADE — one attendance per shift |
+| employee_id | UUID | FK → employees(id), CASCADE |
+| actual_start | TIMESTAMPTZ | Set when employee starts shift |
+| actual_finish | TIMESTAMPTZ | Set when employee finishes shift |
+| attendance_status | attendance_status ENUM | pending, working, completed |
+| created_at | TIMESTAMPTZ | Auto |
+| updated_at | TIMESTAMPTZ | Auto (trigger) |
 
-**Indexes:** `business_id`, `employee_id`, `date`, `status`, `recurring_group_id` (WHERE NOT NULL)
-**RLS:** Admins can CRUD shifts in their business. Employees can read/update their own shifts.
+**RLS policies:**
+- Admin sees for same-business shifts
+- Employee sees/inserts/updates their own
 
-#### `shift_attendance`
+### Table: `odometer_submissions`
+**Purpose:** Stores odometer photos and readings for shift start and finish.
+
 | Column | Type | Notes |
 |---|---|---|
-| `id` | UUID (PK) | `gen_random_uuid()` |
-| `shift_id` | UUID NOT NULL | FK → `shifts(id)` |
-| `employee_id` | UUID NOT NULL | FK → `employees(id)` |
-| `actual_start` | TIMESTAMPTZ | Server timestamp |
-| `actual_finish` | TIMESTAMPTZ | Server timestamp |
-| `attendance_status` | `attendance_status` | Default `pending` |
-| `created_at` | TIMESTAMPTZ | Default `now()` |
+| id | UUID (PK) | Auto-generated |
+| shift_id | UUID | FK → shifts(id), CASCADE |
+| employee_id | UUID | FK → employees(id), CASCADE |
+| submission_type | submission_type ENUM | 'START' or 'FINISH' |
+| photo_path | TEXT | Path in Supabase Storage bucket |
+| odometer_reading | NUMERIC(10,1) | The odometer value entered by employee |
+| server_timestamp | TIMESTAMPTZ | Server time when submitted (not client time) |
+| created_at | TIMESTAMPTZ | Auto |
 
-**Constraints:** UNIQUE on `(shift_id, employee_id)`
-**RLS:** Admins can read attendance in their business. Employees can read/insert their own.
+**Constraint:** UNIQUE(shift_id, submission_type) — exactly one START and one FINISH per shift.
 
-#### `odometer_submissions`
+**RLS policies:**
+- Admin sees for same-business shifts
+- Employee sees/inserts their own
+
+### Table: `timesheets`
+**Purpose:** Auto-generated when a shift is finished. Contains calculated hours, mileage, and payment.
+
 | Column | Type | Notes |
 |---|---|---|
-| `id` | UUID (PK) | `gen_random_uuid()` |
-| `shift_id` | UUID NOT NULL | FK → `shifts(id)` |
-| `employee_id` | UUID NOT NULL | FK → `employees(id)` |
-| `submission_type` | `odometer_submission_type` NOT NULL | `START` or `FINISH` |
-| `photo_path` | TEXT NOT NULL | Path in Supabase Storage |
-| `odometer_reading` | NUMERIC(10,1) NOT NULL | |
-| `server_timestamp` | TIMESTAMPTZ NOT NULL | |
-| `created_at` | TIMESTAMPTZ | Default `now()` |
+| id | UUID (PK) | Auto-generated |
+| shift_id | UUID (UNIQUE) | FK → shifts(id), CASCADE — one timesheet per shift |
+| employee_id | UUID | FK → employees(id), CASCADE |
+| scheduled_start | TIMESTAMPTZ | Copied from shift |
+| scheduled_finish | TIMESTAMPTZ | Copied from shift |
+| actual_start | TIMESTAMPTZ | From shift_attendance |
+| actual_finish | TIMESTAMPTZ | From shift_attendance |
+| worked_minutes | INTEGER | Calculated: actual_finish − actual_start |
+| start_odometer | NUMERIC(10,1) | From START submission |
+| finish_odometer | NUMERIC(10,1) | From FINISH submission |
+| distance_km | NUMERIC(10,1) | Calculated: finish − start odometer |
+| hourly_rate_snapshot | NUMERIC(10,2) | Employee's hourly_rate at time of finish |
+| mileage_rate_snapshot | NUMERIC(10,4) | Employee's mileage_rate at time of finish |
+| wage_amount | NUMERIC(10,2) | (worked_minutes / 60) × hourly_rate_snapshot |
+| mileage_amount | NUMERIC(10,2) | distance_km × mileage_rate_snapshot |
+| estimated_total | NUMERIC(10,2) | wage_amount + mileage_amount |
+| approved_total | NUMERIC(10,2) | Nullable — admin can override |
+| status | timesheet_status ENUM | submitted, approved, needs_correction, correction_required, correction_submitted |
+| approved_by | UUID | FK → users(id), nullable |
+| approved_at | TIMESTAMPTZ | Nullable |
+| created_at | TIMESTAMPTZ | Auto |
 
-**RLS:** Admins can read in their business. Employees can read/insert their own.
+**RLS policies:**
+- Admin sees/updates for same-business shifts
+- Employee sees their own
+- Inserts happen server-side via service role key
 
-#### `timesheets`
+### Table: `payments`
+**Purpose:** Groups approved timesheets by employee + pay period.
+
 | Column | Type | Notes |
 |---|---|---|
-| `id` | UUID (PK) | `gen_random_uuid()` |
-| `shift_id` | UUID NOT NULL | FK → `shifts(id)` |
-| `employee_id` | UUID NOT NULL | FK → `employees(id)` |
-| `scheduled_start` | TIMESTAMPTZ NOT NULL | |
-| `scheduled_finish` | TIMESTAMPTZ NOT NULL | |
-| `actual_start` | TIMESTAMPTZ NOT NULL | |
-| `actual_finish` | TIMESTAMPTZ NOT NULL | |
-| `worked_minutes` | INT NOT NULL | |
-| `start_odometer` | NUMERIC(10,1) NOT NULL | |
-| `finish_odometer` | NUMERIC(10,1) NOT NULL | |
-| `distance_km` | NUMERIC(10,1) NOT NULL | |
-| `hourly_rate_snapshot` | NUMERIC(10,2) NOT NULL | Rate at time of shift completion |
-| `mileage_rate_snapshot` | NUMERIC(10,2) NOT NULL | Rate at time of shift completion |
-| `wage_amount` | NUMERIC(10,2) NOT NULL | |
-| `mileage_amount` | NUMERIC(10,2) NOT NULL | |
-| `estimated_total` | NUMERIC(10,2) NOT NULL | |
-| `approved_total` | NUMERIC(10,2) | Set by admin on approval |
-| `approved_by` | UUID | FK → `users(id)` |
-| `approved_at` | TIMESTAMPTZ | |
-| `status` | `timesheet_status` | Default `submitted` |
-| `created_at` | TIMESTAMPTZ | Default `now()` |
+| id | UUID (PK) | Auto-generated |
+| employee_id | UUID | FK → employees(id), CASCADE |
+| period_start | DATE | |
+| period_end | DATE | |
+| total_hours | NUMERIC(10,2) | Default 0 |
+| total_mileage | NUMERIC(10,1) | Default 0 |
+| wage_amount | NUMERIC(10,2) | Default 0 |
+| mileage_amount | NUMERIC(10,2) | Default 0 |
+| total_amount | NUMERIC(10,2) | Default 0 |
+| status | payment_status ENUM | 'unpaid' or 'paid' |
+| payment_date | TIMESTAMPTZ | Nullable — set when marked paid |
+| marked_paid_by | UUID | FK → users(id), nullable |
+| created_at | TIMESTAMPTZ | Auto |
 
-**RLS:** Admins can read/update for their business. Employees can read their own.
+**RLS policies:**
+- Admin sees/inserts/updates for same-business employees
+- Employee sees their own
 
-#### `payments`
+### Table: `shift_audit_log` (Migration 003)
+**Purpose:** Records every admin edit to a shift for audit trail.
+
 | Column | Type | Notes |
 |---|---|---|
-| `id` | UUID (PK) | `gen_random_uuid()` |
-| `employee_id` | UUID NOT NULL | FK → `employees(id)` |
-| `period_start` | DATE NOT NULL | |
-| `period_end` | DATE NOT NULL | |
-| `total_hours` | NUMERIC(10,2) NOT NULL | |
-| `total_mileage` | NUMERIC(10,1) NOT NULL | |
-| `wage_amount` | NUMERIC(10,2) NOT NULL | |
-| `mileage_amount` | NUMERIC(10,2) NOT NULL | |
-| `total_amount` | NUMERIC(10,2) NOT NULL | |
-| `status` | `payment_status` | Default `unpaid` |
-| `payment_date` | DATE | Set when marked paid |
-| `marked_paid_by` | UUID | FK → `users(id)` |
-| `created_at` | TIMESTAMPTZ | Default `now()` |
+| id | UUID (PK) | Auto-generated |
+| shift_id | UUID | FK → shifts(id) |
+| employee_id | UUID | FK → employees(id) |
+| changed_by | UUID | FK → users(id) |
+| changed_at | TIMESTAMPTZ | Default now() |
+| original_date / new_date | DATE | |
+| original_start / new_start | TIMESTAMPTZ | |
+| original_finish / new_finish | TIMESTAMPTZ | |
+| original_location / new_location | TEXT | |
+| original_instructions / new_instructions | TEXT | |
+| original_employee_id / new_employee_id | UUID | |
+| original_status / new_status | TEXT | |
+| change_reason | TEXT | Required |
+| change_notes | TEXT | Optional |
+| override_reason | TEXT | If admin overrode a warning |
+| required_reconfirmation | BOOLEAN | Default false |
+| created_at | TIMESTAMPTZ | Auto |
 
-**RLS:** Admins can CRUD for their business. Employees can read their own.
+**RLS policies:**
+- Admin can read/insert for their business (via shift → business_id join)
 
-### Table relationships
-```
-businesses
-  ├── users (business_id)
-  ├── employees (business_id)
-  └── shifts (business_id)
+### Table: `timesheet_corrections` (Migration 004)
+**Purpose:** Tracks admin correction requests and employee correction submissions.
 
-users
-  └── employees (user_id)
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID (PK) | Auto-generated |
+| business_id | UUID | Plain UUID (no FK to businesses table) |
+| timesheet_id | UUID | FK → timesheets(id) |
+| employee_id | UUID | FK → employees(id) |
+| correction_round | INTEGER | Default 1 |
+| requested_fields | TEXT[] | e.g. {'actual_finish', 'finish_odometer'} |
+| admin_note | TEXT | Required |
+| original_values | JSONB | Snapshot of original values |
+| corrected_values | JSONB | Nullable — filled when employee submits |
+| recalculated_values | JSONB | Nullable — filled when employee submits |
+| employee_note | TEXT | Nullable |
+| replacement_start_photo | TEXT | Nullable |
+| replacement_finish_photo | TEXT | Nullable |
+| requested_by | UUID | FK → users(id) |
+| requested_at | TIMESTAMPTZ | Default now() |
+| submitted_at | TIMESTAMPTZ | Nullable |
+| status | TEXT | CHECK: 'pending', 'submitted', 'approved', 'rejected' |
+| created_at | TIMESTAMPTZ | Auto |
+| updated_at | TIMESTAMPTZ | Auto |
 
-employees
-  ├── employee_availability (employee_id)
-  ├── shifts (employee_id)
-  ├── shift_attendance (employee_id)
-  ├── odometer_submissions (employee_id)
-  ├── timesheets (employee_id)
-  └── payments (employee_id)
+**RLS policies:**
+- Admin can read/insert/update for their business
+- Employee can read their own; can update own pending corrections
 
-shifts
-  ├── shift_attendance (shift_id)
-  ├── odometer_submissions (shift_id)
-  └── timesheets (shift_id)
-```
+### RLS helper functions (defined in Migration 001)
+- `current_app_user_id()` — returns the `users.id` for the authenticated user
+- `current_user_role()` — returns the `user_role` enum value
+- `current_user_business_id()` — returns the `business_id` for the authenticated user
+- `current_employee_id()` — returns the `employees.id` (NULL for admins)
+
+All are `SECURITY DEFINER STABLE` functions.
+
+### Database triggers
+- `update_updated_at()` — auto-sets `updated_at = now()` on UPDATE for: users, employees, employee_availability, shifts, shift_attendance.
+
+### Important design note: `business_id`
+`business_id` is a plain UUID column, **NOT** a foreign key to a `businesses` table. **No `businesses` table exists.** The first admin's `business_id` is auto-generated as a random UUID during account setup. All employees created by that admin inherit the same `business_id`. This is a V1 simplification — one admin = one business.
 
 ### Migrations
-- `001_initial_schema.sql` — All base tables, enums, indexes, RLS policies, storage bucket.
-- `002_recurring_shifts.sql` — Added `recurrence_type` enum and recurring shift columns to `shifts` table.
+
+| File | What it adds |
+|---|---|
+| `001_initial_schema.sql` | All 8 core tables, enums, indexes, triggers, RLS policies, storage bucket, RLS helper functions |
+| `002_recurring_shifts.sql` | `recurrence_type` enum, recurring columns on shifts (recurring_group_id, is_recurring, recurrence_type, recurrence_end_date) |
+| `003_shift_editing.sql` | `updated_pending` shift status, `updated_by` and `last_change_reason` columns on shifts, `shift_audit_log` table |
+| `004_timesheet_corrections.sql` | `correction_required` and `correction_submitted` timesheet statuses, `timesheet_corrections` table |
 
 ---
 
@@ -380,86 +495,96 @@ shifts
 
 ### ✅ COMPLETED
 
-1. **Project scaffolding** — Next.js 16, TypeScript, Tailwind CSS 4, folder structure
-2. **Supabase integration** — Three client types (browser, server, admin)
-3. **Database schema** — 8 tables, enums, indexes, RLS policies
-4. **Authentication** — Login, logout, session management, role-based routing
-5. **Force password change** — First login redirects to change-password page
-6. **Admin employee CRUD** — List, create, view detail, edit, disable/enable, reset password
-7. **Employee availability** — Admin sets weekly recurring availability per employee
-8. **Single shift creation** — Date, time, location, instructions, employee assignment with availability/overlap checks
-9. **Recurring shift creation** — Multi-step flow: details → employee selection → recurrence type → conflict preview → confirm → publish
-10. **Weekly roster grid** — Desktop table view (employee × day) and mobile card view, week navigation
-11. **Employee shift acceptance** — View shifts, accept/decline pending shifts
-12. **Start shift** — Upload odometer photo, enter reading, creates attendance record with server timestamp
-13. **Finish shift** — Upload odometer photo, enter reading, updates attendance, auto-generates timesheet
-14. **Automatic timesheet generation** — On shift finish: calculates hours, mileage, payment with rate snapshots
-15. **Admin timesheet review** — List with status filters, detail view with approve/needs-correction actions
-16. **Payment creation** — Admin selects employee + date range, groups approved timesheets into payment
-17. **Mark payment as paid** — Records payment date and who marked it
-18. **Admin dashboard** — Stats cards (employees, shifts, timesheets, payments) with quick action links
-19. **Employee dashboard** — Active shift alert, earnings summary, upcoming shifts, recent timesheets
-20. **Employee profile** — Read-only view of name, employee number, rates, status
-21. **Status badges** — Reusable component with color-coded badges for all statuses
-22. **Responsive design** — Desktop table + mobile card layouts, responsive navigation with hamburger menu
-23. **Vercel deployment** — Live at production URL with GitHub auto-deploy
+1. **Project setup** — Next.js scaffold, Supabase clients, layered folder structure, calculation helpers.
+2. **Database schema** — All tables, enums, indexes, triggers, RLS policies, storage bucket (4 migration files).
+3. **Authentication** — Login page, session middleware, role-based routing, force password change on first login.
+4. **Admin employee CRUD** — Create, view, edit, disable/enable, reset password.
+5. **Admin availability management** — Set recurring weekly availability per employee (7 days).
+6. **Shift creation** — Single shift creation with overlap + availability validation.
+7. **Recurring shifts** — Repeat next week, weekly to end of month, weekly to custom end date. Preview conflicts before creating.
+8. **Weekly roster view** — Mobile-first day-card view with shift cards, status indicators, weekly summary bar. Desktop table view preserved.
+9. **Roster tools** — Copy Last Week (preview + create), Find Employee (smart ranking by availability/hours), Employee View mode, Roster Tools menu.
+10. **Shift editing** — Admin can edit date/time/location/instructions. Validation (overlap, availability). Audit logging. Employee reconfirmation when accepted shift is modified (updated_pending status).
+11. **Employee shift acceptance** — Employee sees shifts, accepts or declines. Can re-accept updated shifts.
+12. **Start shift** — Employee uploads starting odometer photo + enters reading. Server timestamp recorded.
+13. **Finish shift** — Employee uploads ending odometer photo + enters reading. Auto-generates timesheet.
+14. **Auto-timesheet generation** — On shift finish: calculates worked minutes, mileage, payment using rate snapshots. Creates timesheet with status 'submitted'.
+15. **Admin timesheet review** — Approve, or request correction with specific fields + admin note.
+16. **Timesheet correction workflow** — Admin requests correction → employee submits corrected values → recalculation → admin reviews corrected timesheet.
+17. **Payment tracking** — Group approved timesheets by employee + period. Mark paid.
+18. **Admin dashboard** — Stats: total/active employees, pending shifts, today's shifts, submitted timesheets, unpaid payments + amount.
+19. **Employee dashboard** — Stats: upcoming shifts, active shift, recent timesheets, total earned, total paid, pending payment.
+20. **Mobile-first roster redesign** — Bottom sheets, 3-step shift creation, smart employee ranking, copy-week preview, day cards with indicators.
+21. **Status badges** — Reusable component with color-coded badges for all statuses.
+22. **Responsive navigation** — Admin and employee nav with mobile hamburger menu.
+23. **Vercel deployment** — Live with GitHub auto-deploy.
 
 ### ⚠️ PARTIALLY COMPLETED
 
-1. **Recurring shift "Save as Draft"** — The API accepts `saveAsDraft` parameter and returns `isDraft` in response, but all shifts are created with `status: "pending"` regardless. Draft status is not functionally different from published.
+1. **Employee notifications** — No push notifications or real-time alerts. Employees must log in and check their shifts page to see new/updated shifts. Status changes (pending → updated_pending) are recorded in the database but not actively pushed.
 
-### 📋 PLANNED (from spec, not yet implemented)
+### 📋 PLANNED
 
-1. **Phase 13: Security review & end-to-end test** — Run the "John Smith" test scenario, verify RLS policies, verify all permission checks.
-2. **Notifications** — No notification system exists yet (no email, push, or in-app notifications).
-3. **Shift editing/cancelling** — No endpoint to edit or cancel existing shifts after creation.
-4. **EXIF metadata extraction** — Odometer photos are stored but EXIF data (GPS, timestamp) is not extracted or validated.
-5. **Timezone handling** — Spec mentions AEST (Australia/Sydney) but timestamps are stored as UTC with no explicit timezone conversion in the app.
+1. **Phase 13: Security review & end-to-end test** — Run the John Smith test scenario from the spec. Verify RLS policies and permission checks end-to-end.
 
 ### 💡 IDEAS / FUTURE FEATURES
 
-1. Push notifications for new shift assignments
-2. Email notifications for shift reminders
-3. Employee self-service availability editing
-4. Bulk shift operations (cancel, reassign)
-5. Export timesheets/payments to CSV
-6. Admin multi-business support
-7. Photo comparison view on timesheet review (show start/finish odometer photos side by side)
-8. Audit log for admin actions
-9. Shift swap requests between employees
+1. Push notifications for new shifts, shift changes, correction requests.
+2. Real-time updates using Supabase Realtime.
+3. Multi-business support with a `businesses` table and proper FK relationships.
+4. Employee self-service availability editing.
+5. Shift swap/trade between employees.
+6. Reporting & analytics (weekly/monthly reports for hours, mileage, payments).
+7. Export to CSV/PDF (timesheets and payment records).
+8. Overtime rules (automatic overtime calculation based on configurable thresholds).
+9. Break tracking during shifts.
+10. GPS location verification at shift start/finish.
+11. EXIF metadata extraction from odometer photos.
+12. Photo comparison view on admin timesheet review page.
 
 ---
 
 ## 8. Admin Workflow
 
 ```
-Admin Login
-  → Dashboard (overview stats)
-  → Manage Employees
-     → Add new employee (set name, phone, ID, rates, login credentials)
-     → View/edit employee details
-     → Set weekly availability per employee
-     → Disable/enable employee accounts
-     → Reset employee passwords
-  → Create Shifts
-     → Set date, time, location, instructions
-     → Select one or multiple employees
-     → Choose recurrence (none / next week / weekly to end of month / custom end date)
-     → Preview conflicts (availability, overlapping shifts, inactive employees)
-     → Skip or override conflicts per employee per date
-     → Publish shifts (all created as "pending")
-  → View Roster
-     → Weekly grid view (employee × day of week)
-     → Navigate between weeks
-     → See shift times and statuses
-  → Review Timesheets
-     → Filter by status (all / pending review / approved / needs correction)
-     → View timesheet detail: scheduled vs actual times, odometer readings, payment breakdown
-     → Approve (optionally override total) or mark as needs correction
-  → Manage Payments
-     → Create payment: select employee + date range → groups approved timesheets
-     → View payment details: period, hours, mileage, wage/mileage breakdown, total
-     → Mark payment as paid
+Admin logs in
+  → Redirected to /admin/dashboard
+  → Views summary stats (employees, pending shifts, timesheets, unpaid payments)
+  │
+  ├── MANAGE EMPLOYEES
+  │   → /admin/employees — list all employees
+  │   → /admin/employees/new — create new employee (name, employee#, phone, rates, temp password)
+  │   → /admin/employees/[id] — view/edit employee details
+  │     → Edit rates, phone, disable/enable account, reset password
+  │     → Set weekly availability (7-day grid with time windows)
+  │
+  ├── CREATE ROSTER
+  │   → /admin/roster — weekly roster view
+  │   → Tap "+ Shift" → 3-step bottom sheet:
+  │     Step 1: Select date, start time, end time, location, instructions
+  │     Step 2: Choose employee(s) — smart-ranked by availability + weekly hours
+  │     Step 3: Review & publish (with optional repeat: next week, weekly to month end, weekly to custom date)
+  │   → OR: Use "Copy Last Week" — preview ready/conflict/unavailable shifts, then create
+  │   → OR: Use /admin/shifts/new — traditional form-based shift creation
+  │
+  ├── MANAGE SHIFTS
+  │   → View shift details from roster
+  │   → Edit shift (date/time/location/instructions) — triggers validation
+  │   → If accepted shift is modified → status becomes updated_pending → employee must re-accept
+  │   → All edits logged to shift_audit_log
+  │
+  ├── REVIEW TIMESHEETS
+  │   → /admin/timesheets — list submitted/approved/correction timesheets
+  │   → /admin/timesheets/[id] — review individual timesheet
+  │     → Approve (optionally set approved_total different from estimated_total)
+  │     → Request correction (select which fields, add note)
+  │     → Review and approve corrected timesheets
+  │
+  └── TRACK PAYMENTS
+      → /admin/payments — list all payments
+      → Create payment from approved timesheets (select employee + period)
+      → /admin/payments/[id] — view payment details
+      → Mark as paid
 ```
 
 ---
@@ -467,35 +592,42 @@ Admin Login
 ## 9. Employee Workflow
 
 ```
-Employee Login
-  → Force password change (first login only, min 8 characters)
-  → Employee Home (dashboard)
-     → See active shift alert (if currently working)
-     → See earnings summary (total paid / pending)
-     → See upcoming shifts (next 5)
-     → See recent timesheets (last 3)
-  → My Shifts
-     → View all assigned shifts with dates, times, locations, statuses
-     → Tap shift → Shift Detail:
-        → If "pending": Accept or Decline
-        → If "accepted": START SHIFT button
-           → Start Shift page:
-              1. Take/upload odometer photo
-              2. Enter odometer reading (km)
-              3. Confirm → shift is now "working"
-        → If "working": FINISH SHIFT button
-           → Finish Shift page:
-              1. Take/upload odometer photo
-              2. Enter odometer reading (km)
-              3. Confirm → shift becomes "completed"
-              4. Success screen with auto-generated timesheet summary
-                 (hours worked, distance, wages, mileage, estimated total)
-  → Timesheets
-     → View all timesheets with dates, hours, distance, amounts, statuses
-  → Payments
-     → View all payments with period, hours, mileage, breakdown, totals
-  → Profile
-     → Read-only view of name, employee number, phone, rates, status
+Employee logs in (with temp password from admin)
+  → Forced to /change-password (must set new password, min 8 chars)
+  → Redirected to /employee/home
+  → Views summary stats (upcoming shifts, active shift, recent timesheets, earnings)
+  │
+  ├── VIEW & RESPOND TO SHIFTS
+  │   → /employee/shifts — list assigned shifts
+  │   → /employee/shifts/[id] — view shift details
+  │     → Accept shift (status: pending → accepted)
+  │     → Decline shift (status: pending → declined)
+  │     → Re-accept updated shift (status: updated_pending → accepted)
+  │
+  ├── WORK A SHIFT
+  │   → /employee/start-shift/[id]
+  │     → Take/upload odometer photo
+  │     → Enter starting odometer reading
+  │     → Submit → creates shift_attendance (working) + odometer_submission (START)
+  │   → /employee/finish-shift/[id]
+  │     → Take/upload odometer photo
+  │     → Enter ending odometer reading (must be ≥ starting reading)
+  │     → Submit → updates attendance (completed), shift (completed)
+  │     → AUTO-GENERATES timesheet with calculations
+  │     → Shows summary: worked time, distance, estimated payment
+  │
+  ├── VIEW TIMESHEETS
+  │   → /employee/timesheets — list all timesheets
+  │   → /employee/timesheets/[id] — view individual timesheet
+  │     → If correction_required → submit corrected values for requested fields only
+  │     → View approved/paid status
+  │
+  ├── VIEW PAYMENTS
+  │   → /employee/payments — list all payments and their status
+  │
+  └── MANAGE PROFILE
+      → /employee/profile — view profile details
+      → Change password
 ```
 
 ---
@@ -503,268 +635,277 @@ Employee Login
 ## 10. Shift Creation System
 
 ### Single shift creation
-- Admin selects: date, start time, end time, location (optional), instructions (optional)
-- Admin selects one or more employees via checkboxes
-- System checks employee availability for the selected day of week
-- System checks for overlapping existing shifts
-- Shift is created with status `pending`
+- **Date**: Any date.
+- **Start/end time**: Time inputs; end must be after start.
+- **Employee assignment**: Admin selects one employee per shift.
+- **Availability check**: Warns if employee is unavailable or partially available on that day/time (warning, not blocking).
+- **Overlap check**: Warns if employee already has a shift overlapping the time window (warning, not blocking).
+- **Location**: Optional text field.
+- **Instructions**: Optional text field.
+- **Initial status**: `pending` — employee must accept.
 
-### Recurring shift creation (multi-step)
-**Step 1 — Details:**
-- Date, start time, end time, location, instructions
-- Multi-employee selection (checkboxes from active employees list)
-- Recurrence radio buttons:
-  - `NONE` — Single shift
-  - `NEXT_WEEK` — Same day next week (2 shifts total)
-  - `WEEKLY_END_OF_MONTH` — Every week until end of the month
-  - `WEEKLY_CUSTOM_END` — Every week until a chosen end date
-- "Keep same employees for all dates" checkbox (always checked currently)
+### Smart employee ranking (mobile roster)
+When creating a shift, the `/api/roster/available-employees` endpoint ranks employees:
+1. **Available** — marked available for that day, within their time window
+2. **Partial** — available but shift extends outside their availability window
+3. **Unavailable** — not available on that day of week
+4. **Conflict** — already has an overlapping shift
 
-**Step 2 — Review conflicts:**
-- Calls `POST /api/shifts/recurring` with `action: "preview"`
-- Generates list of dates using `generateRecurringDates()`
-- For each date × employee, checks:
-  - Employee active status
-  - Availability for that day of week (day toggle + time range)
-  - Overlapping existing shifts
-- Displays per-date conflict cards with:
-  - ✅ Available (green)
-  - ⚠️ Conflict with existing shift (yellow) — with Override/Skip buttons
-  - 🚫 Unavailable that day (orange) — with Override/Skip buttons
-  - ❌ Inactive employee (red) — with Override/Skip buttons
+Within each group, employees are sorted by **lower weekly rostered hours first** (load balancing).
 
-**Step 3 — Confirm:**
-- Summary of dates, times, employees
-- Shows how many total shifts will be created
-- "Publish Repeating Shifts" button or "Save as Draft" button
-- Creates all shifts atomically via `POST /api/shifts/recurring` with `action: "create"`
-- All recurring shifts share a `recurring_group_id` UUID
-- Skipped conflicts are excluded; overridden conflicts are included
+### Recurring shifts (IMPLEMENTED)
+- **Repeat next week** — creates the same shift 7 days later.
+- **Weekly to end of month** — repeats weekly until the last day of the month.
+- **Weekly to custom end date** — repeats weekly until a specified date.
+- All recurring shifts get a shared `recurring_group_id`.
+- Preview shows conflicts per employee per date before creation.
+- Shifts are created with status `pending`.
+- Recurrence types: `NONE`, `NEXT_WEEK`, `WEEKLY_END_OF_MONTH`, `WEEKLY_CUSTOM_END`.
+
+### Copy Last Week (IMPLEMENTED)
+- `/api/roster/copy-week` endpoint.
+- `action: "preview"` — shows each shift with status: ready, conflict, unavailable, or inactive.
+- `action: "create"` — bulk-inserts the "ready" shifts as `pending`.
+- Skips cancelled/declined shifts from the source week.
+
+### Shift editing (IMPLEMENTED)
+- Admin can edit: date, start time, end time, location, instructions.
+- Validation runs: overlap check, availability check (warnings, can be overridden with reason).
+- If the shift was previously `accepted` and the date/start/finish/location changed → status becomes `updated_pending`.
+- Employee must re-accept the updated shift.
+- All changes logged to `shift_audit_log` with: original values, new values, change reason, override reason (if any), whether reconfirmation was required.
+- Validation logic: `src/lib/services/shiftValidation.ts` — `validateShiftAssignment()` and `requiresEmployeeReconfirmation()`.
 
 ### Shift statuses
 | Status | Meaning |
 |---|---|
-| `pending` | Created, waiting for employee response |
-| `accepted` | Employee accepted, ready to start |
+| `pending` | Newly created, awaiting employee response |
+| `accepted` | Employee accepted |
 | `declined` | Employee declined |
-| `completed` | Shift finished, timesheet generated |
-| `cancelled` | Not implemented yet |
+| `updated_pending` | Admin edited an accepted shift; employee must re-accept |
+| `completed` | Employee finished the shift |
+| `cancelled` | Shift was cancelled |
 
-### Not yet implemented
-- Editing existing shifts after creation
-- Cancelling shifts
-- Shift notifications to employees
-- Draft vs published distinction (both create as `pending`)
+### NOT implemented
+- Number of workers per shift (currently 1 shift = 1 employee; for multiple employees, create multiple shifts).
+- Cancelling shifts from the UI (only status exists in DB).
+- Push notifications when shifts are created/updated.
 
 ---
 
 ## 11. Photo and Odometer System
 
-### Start shift flow
-1. Employee navigates to `/employee/start-shift/[shiftId]`
-2. Takes photo of vehicle odometer (camera or file upload, `accept="image/*" capture="environment"`)
-3. Enters odometer reading in km (numeric, step 0.1)
-4. Submits form as multipart FormData
+### Before-shift (START)
+1. Employee navigates to `/employee/start-shift/[id]`.
+2. Employee takes or uploads a photo of their odometer.
+3. Employee enters the odometer reading manually (numeric, NUMERIC(10,1)).
+4. On submit:
+   - Photo is uploaded to Supabase Storage bucket `odometer-photos` at path: `{employee_id}/{shift_id}/start_{timestamp}.{ext}`.
+   - An `odometer_submissions` row is created with `submission_type = 'START'`.
+   - A `shift_attendance` row is created with `attendance_status = 'working'` and `actual_start` set to server time.
+   - `server_timestamp` uses the server's `new Date().toISOString()`, NOT client time.
 
-### Server processing (start)
-1. Validates: shift exists, belongs to employee, status is `accepted`, not already started
-2. Uploads photo to Supabase Storage bucket `odometer-photos` at path: `{employeeId}/{shiftId}/start_{timestamp}.{ext}`
-3. Records server timestamp (`new Date().toISOString()`)
-4. Creates `shift_attendance` record with `attendance_status: "working"`, `actual_start` = server time
-5. Creates `odometer_submissions` record with `submission_type: "START"`, photo path, reading, server timestamp
-
-### Finish shift flow
-1. Employee navigates to `/employee/finish-shift/[shiftId]`
-2. Takes photo of vehicle odometer
-3. Enters odometer reading in km
-4. Validates: finish reading ≥ start reading
-5. Submits form as multipart FormData
-
-### Server processing (finish)
-1. Validates: shift exists, belongs to employee, attendance is `working`
-2. Uploads photo to `{employeeId}/{shiftId}/finish_{timestamp}.{ext}`
-3. Records server timestamp
-4. Creates `odometer_submissions` record with `submission_type: "FINISH"`
-5. Updates `shift_attendance`: `actual_finish` = server time, `attendance_status: "completed"`
-6. Updates shift status to `completed`
-7. Auto-generates timesheet (see Section 12-14)
+### After-shift (FINISH)
+1. Employee navigates to `/employee/finish-shift/[id]`.
+2. Employee takes or uploads a photo of their odometer.
+3. Employee enters the ending odometer reading.
+4. **Validation**: Ending reading must be ≥ starting reading. If not, the API returns an error.
+5. On submit:
+   - Photo uploaded to `{employee_id}/{shift_id}/finish_{timestamp}.{ext}`.
+   - An `odometer_submissions` row is created with `submission_type = 'FINISH'`.
+   - `shift_attendance` is updated: `actual_finish = serverNow`, `attendance_status = 'completed'`.
+   - Shift status is updated to `completed`.
+   - **Timesheet is auto-generated** (see sections 12–14).
 
 ### Storage
-- **Bucket:** `odometer-photos` (private, created in migration)
-- **Path pattern:** `{employeeId}/{shiftId}/{start|finish}_{timestamp}.{extension}`
-- **Content type:** Detected from uploaded file, defaults to `image/jpeg`
-- **upsert:** `false` (never overwrites)
+- **Bucket**: `odometer-photos` (private, not public).
+- **RLS on storage.objects**: Any authenticated user can upload to the bucket; any authenticated user can read.
+- **Photo format**: Accepts any image file; stored as-is (no compression/resizing).
+- **upsert**: `false` (never overwrites existing files).
 
-### Not yet implemented
-- EXIF metadata extraction (GPS location, camera timestamp)
-- Photo viewing in the admin timesheet review page (submissions are fetched but photos not displayed)
-- Fraud detection / mileage anomaly detection
-- Photo compression or size limits
+### NOT implemented
+- EXIF metadata extraction or validation.
+- GPS location from photos.
+- Fraud detection or anomaly detection on readings.
+- Photo preview/zoom for admin review.
+- File type validation (any file is accepted as a "photo").
 
 ---
 
 ## 12. Working Hours Calculation
 
+**File:** `src/lib/calculations/time.ts`
+
 ### Formula
 ```
-workedMinutes = Math.round((actualFinish - actualStart) / 60000)
+worked_minutes = Math.round((actual_finish - actual_start) / 60000)
 ```
 
-**Location:** `src/lib/calculations/time.ts`
+- Uses actual timestamps from `shift_attendance`, NOT scheduled times.
+- Result is in **whole minutes** (rounded to nearest minute).
+- Throws an error if `actual_finish` is before `actual_start`.
 
-- Uses actual timestamps (server-recorded), not scheduled times
-- Rounded to nearest minute
-- No special rules for breaks, overtime, or minimum hours
+### Display format
+```
+formatWorkedDuration(totalMinutes) → { hours: Math.floor(minutes/60), minutes: minutes%60 }
+```
 
-### Helper functions
-- `calculateWorkedMinutes(actualStart: Date, actualFinish: Date)` → integer minutes
-- `formatWorkedDuration(totalMinutes: number)` → `{ hours: number, minutes: number }`
-- `minutesToDecimalHours(totalMinutes: number)` → `totalMinutes / 60` (e.g., 90 min → 1.5)
+### Decimal hours (for payment)
+```
+minutesToDecimalHours(totalMinutes) = totalMinutes / 60
+```
 
 ### Example
-| Actual Start | Actual Finish | Worked |
-|---|---|---|
-| 2:05 PM | 7:35 PM | 5h 30m (330 min) |
+- actual_start: 2026-08-17T09:00:00Z
+- actual_finish: 2026-08-17T14:30:00Z
+- worked_minutes = 330
+- Display: 5 hours 30 minutes
+- Decimal hours: 5.5
+
+### Special rules
+- No rounding rules beyond whole-minute rounding.
+- No break deductions.
+- No overtime multipliers.
+- No maximum shift length enforcement.
 
 ---
 
 ## 13. Mileage Calculation
 
+**File:** `src/lib/calculations/mileage.ts`
+
 ### Formula
 ```
-distanceKm = endingOdometer - startingOdometer
+distance_km = ending_odometer - starting_odometer
 ```
 
-**Location:** `src/lib/calculations/mileage.ts`
+- Result is in **km** (unit is implicit from odometer readings).
+- Stored as NUMERIC(10,1) — one decimal place.
+- Throws error if ending < starting.
 
-- `calculateMileage(startingOdometer: number, endingOdometer: number)` → number
-- Throws an error if `endingOdometer < startingOdometer`
-- Also validated on the API side before timesheet generation
+### Validation
+- Ending odometer must be ≥ starting odometer (enforced in API route before calling the calculation).
+- No upper bound validation (no maximum mileage per shift).
+- No cross-shift continuity check (e.g., today's start should equal yesterday's finish).
 
 ### Example
-| Start Odometer | End Odometer | Distance |
-|---|---|---|
-| 45,230 km | 45,280 km | 50 km |
+- Starting odometer: 45231.5
+- Ending odometer: 45289.2
+- Distance: 57.7 km
 
 ---
 
 ## 14. Payroll Calculation
 
-### Formulas
+**File:** `src/lib/calculations/payment.ts`
 
-**Location:** `src/lib/calculations/payment.ts`
-
+### Formula
 ```
-wageAmount     = round2((workedMinutes / 60) × hourlyRateSnapshot)
-mileageAmount  = round2(distanceKm × mileageRateSnapshot)
-estimatedTotal = round2(wageAmount + mileageAmount)
+decimal_hours = worked_minutes / 60
+wage_amount = round2(decimal_hours × hourly_rate_snapshot)
+mileage_amount = round2(distance_km × mileage_rate_snapshot)
+estimated_total = round2(wage_amount + mileage_amount)
 ```
 
-Where `round2(x) = Math.round(x * 100) / 100`
+Where `round2(x) = Math.round(x * 100) / 100` (rounds to 2 decimal places).
 
 ### Rate snapshots
-When a timesheet is generated, the employee's **current** `hourly_rate` and `mileage_rate` are captured as `hourly_rate_snapshot` and `mileage_rate_snapshot`. This means if rates change later, historical timesheets keep the rate that was in effect when the shift was completed.
+- When a timesheet is auto-generated, the employee's **current** `hourly_rate` and `mileage_rate` are copied into the timesheet as `hourly_rate_snapshot` and `mileage_rate_snapshot`.
+- This ensures that if the employee's rate changes later, past timesheets remain accurate.
+- Calculations always use the snapshot rates, never the live employee rates.
 
-### Payment aggregation
-When admin creates a payment for a period:
-```
-totalWages         = sum of all approved timesheets' wage_amount
-totalMileageAmount = sum of all approved timesheets' mileage_amount
-totalHours         = round2(totalMinutes / 60)
-totalAmount        = round2(totalWages + totalMileageAmount)
-```
-
-### Payment statuses
-- `unpaid` — Created, not yet paid
-- `paid` — Marked by admin; records `payment_date` and `marked_paid_by`
-
-### Who can change payment status
-- Only admins can create payments and mark them as paid.
-- Employees can only view their payments.
-
-### Example
-| Value | Calculation |
-|---|---|
-| Worked | 5h 30m (330 min) |
-| Rate | $30.00/hr |
-| Wages | (330/60) × 30 = $165.00 |
-| Distance | 50 km |
-| Mileage rate | $0.50/km |
-| Mileage | 50 × 0.50 = $25.00 |
-| **Estimated Total** | **$190.00** |
+### Payment status
+- `unpaid` — default when payment record is created.
+- `paid` — admin marks it as paid.
+- Only admin can change payment status.
 
 ### Admin override
-On timesheet approval, admin can optionally set `approved_total` to a different value from `estimated_total`. If not set, the estimated total is used.
+- Admin can set `approved_total` to a different value than `estimated_total` when approving a timesheet.
+
+### Example
+```
+worked_minutes: 330 (5h 30m)
+distance_km: 57.7
+hourly_rate_snapshot: $28.50
+mileage_rate_snapshot: $0.78/km
+
+wage_amount = (330/60) × 28.50 = 5.5 × 28.50 = $156.75
+mileage_amount = 57.7 × 0.78 = $45.01
+estimated_total = $156.75 + $45.01 = $201.76
+```
 
 ---
 
 ## 15. Notifications
 
-### Current status: NOT IMPLEMENTED
+### Current state: NO ACTIVE NOTIFICATIONS
 
-No notification system exists in the application. There are no:
-- Email notifications
-- Push notifications
-- In-app notification feed
-- SMS notifications
+The application does **not** currently have push notifications, email notifications, in-app notification bells, or real-time alerts.
 
-### Planned notification triggers (from spec)
-| Trigger | Recipient | Type |
-|---|---|---|
-| New shift assigned | Employee | Push/email |
-| Shift accepted/declined | Admin | In-app |
-| Timesheet submitted | Admin | In-app |
-| Timesheet approved | Employee | Push/email |
-| Timesheet needs correction | Employee | Push/email |
-| Payment created | Employee | Push/email |
-| Payment marked as paid | Employee | Push/email |
+### How users discover changes
+- **Employees** must log in and check `/employee/shifts` to see new or updated shifts.
+- **Admins** must check the dashboard for pending responses, submitted timesheets, etc.
+- Status changes are recorded in the database (e.g., `updated_pending`) but not actively communicated.
+
+### Planned notifications (not yet implemented)
+
+| Trigger | Recipient | Type | Action |
+|---|---|---|---|
+| New shift assigned | Employee | Push / email | Open shift detail |
+| Shift updated | Employee | Push / email | Review updated shift |
+| Shift accepted/declined | Admin | Push / email | View roster |
+| Timesheet submitted | Admin | Push / email | Review timesheet |
+| Correction requested | Employee | Push / email | Submit correction |
+| Payment marked paid | Employee | Push / email | View payment |
 
 ---
 
 ## 16. Pages and Screens
 
-### Public pages
+### Public / Auth pages
 
-| Path | Purpose | Components |
+| Path | Purpose | Role |
 |---|---|---|
-| `/login` | Login form (User ID + password) | — |
-| `/change-password` | Force password change on first login | — |
+| `/login` | Login page — User ID + password | All |
+| `/change-password` | Force password change on first login | All (when must_change_password = true) |
+| `/` | Root — checks auth, routes to admin dashboard or employee home | All |
 
 ### Admin pages
 
-| Path | Purpose | Key Features |
+| Path | Purpose | Key actions |
 |---|---|---|
-| `/admin/dashboard` | Admin home with stats | Stats grid (employees, shifts, timesheets, payments), quick action links |
-| `/admin/employees` | Employee list | Desktop table + mobile cards, status badges |
-| `/admin/employees/new` | Create employee form | Name, phone, employee ID, rates, login credentials; success shows credentials |
-| `/admin/employees/[id]` | Employee detail | Two tabs: Details (view/edit name, phone, rates; actions: disable/enable, reset password) and Availability (7-day weekly schedule with toggle + time range) |
-| `/admin/roster` | Weekly roster grid | Employee × day table (desktop), day cards (mobile), week navigation |
-| `/admin/shifts/new` | Create shift (single or recurring) | Multi-step flow: details → review conflicts → confirm |
-| `/admin/timesheets` | Timesheet list | Status filter tabs (all/pending/approved/needs correction) |
-| `/admin/timesheets/[id]` | Timesheet detail & review | Shift details, hours & distance, payment breakdown, approve/needs-correction buttons |
-| `/admin/payments` | Payment list + create | Create payment form (employee + date range), payment cards |
-| `/admin/payments/[id]` | Payment detail | Period, hours, mileage, wage/mileage breakdown, mark-as-paid button |
+| `/admin/dashboard` | Dashboard with summary stats | View totals, quick links |
+| `/admin/employees` | Employee list | View all, link to create/edit |
+| `/admin/employees/new` | Create new employee | Set name, number, phone, rates, temp password |
+| `/admin/employees/[id]` | View/edit employee | Edit details, rates, availability, disable/enable, reset password |
+| `/admin/roster` | Weekly roster (mobile day cards + desktop table) | Create shift (3-step), edit shift, copy week, find employee, employee view |
+| `/admin/shifts/new` | Traditional shift creation form | Date, time, employee, location, instructions, recurring |
+| `/admin/timesheets` | Timesheet list with status filter | View submitted/approved/correction timesheets |
+| `/admin/timesheets/[id]` | Review individual timesheet | Approve, request correction, view correction submissions |
+| `/admin/payments` | Payment list | View all, create payment from approved timesheets |
+| `/admin/payments/[id]` | View individual payment | Mark as paid |
 
 ### Employee pages
 
-| Path | Purpose | Key Features |
+| Path | Purpose | Key actions |
 |---|---|---|
-| `/employee/home` | Employee dashboard | Active shift alert (animated), earnings summary, upcoming shifts, recent timesheets, quick links |
-| `/employee/shifts` | Shift list | All assigned shifts with dates, times, locations, statuses |
-| `/employee/shifts/[id]` | Shift detail | Accept/decline (pending), start shift (accepted), finish shift (working), status messages |
-| `/employee/start-shift/[id]` | Start shift form | Photo upload/capture, odometer reading input, confirm button |
-| `/employee/finish-shift/[id]` | Finish shift form | Photo upload/capture, odometer reading input, confirm button; success shows timesheet summary |
-| `/employee/timesheets` | Timesheet list | Date, time range, hours, distance, amounts, statuses |
-| `/employee/payments` | Payment list | Period, hours, mileage, wage/mileage breakdown, totals |
-| `/employee/profile` | Profile (read-only) | Avatar initial, name, employee number, phone, rates, status |
+| `/employee/home` | Dashboard with summary stats | View upcoming shifts, active shift, earnings |
+| `/employee/shifts` | My shifts list | View assigned shifts |
+| `/employee/shifts/[id]` | Shift detail | Accept, decline, re-accept updated |
+| `/employee/start-shift/[id]` | Start shift workflow | Upload odometer photo, enter reading |
+| `/employee/finish-shift/[id]` | Finish shift workflow | Upload odometer photo, enter reading |
+| `/employee/timesheets` | My timesheets list | View all timesheets |
+| `/employee/timesheets/[id]` | Timesheet detail | View details, submit corrections if requested |
+| `/employee/payments` | My payments list | View payment amounts and status |
+| `/employee/profile` | My profile | View details, change password |
 
-### Components
+### Shared components
 
-| Component | Purpose |
-|---|---|
-| `AdminNav` | Top navigation bar for admin pages (Dashboard, Employees, Roster, Timesheets, Payments, Sign Out). Responsive with hamburger menu. |
-| `EmployeeNav` | Top navigation bar for employee pages (Home, My Shifts, Timesheets, Payments, Profile, Sign Out). Responsive with hamburger menu. |
-| `StatusBadge` | Color-coded pill badge for any status string. Supports: active, inactive, disabled, pending, accepted, declined, working, completed, cancelled, submitted, approved, needs_correction, unpaid, paid. |
+| Component | File | Purpose |
+|---|---|---|
+| AdminNav | `src/components/AdminNav.tsx` | Admin navigation bar with hamburger menu on mobile |
+| EmployeeNav | `src/components/EmployeeNav.tsx` | Employee navigation bar with hamburger menu on mobile |
+| StatusBadge | `src/components/StatusBadge.tsx` | Colored badges for all status values (shift, timesheet, payment, correction) |
 
 ---
 
@@ -772,267 +913,271 @@ No notification system exists in the application. There are no:
 
 ```
 src/
-├── app/
-│   ├── page.tsx                          # Root redirect (auth check → role-based routing)
-│   ├── layout.tsx                        # Root HTML layout, global CSS import
-│   ├── login/page.tsx                    # Login form
-│   ├── change-password/page.tsx          # Force password change
+├── app/                          # Next.js App Router
+│   ├── page.tsx                  # Root redirect (auth check → role-based routing)
+│   ├── layout.tsx                # Root layout (Tailwind, fonts)
+│   ├── login/page.tsx            # Login form
+│   ├── change-password/page.tsx  # Force password change
+│   │
 │   ├── admin/
-│   │   ├── layout.tsx                    # Auth guard (admin role + active status)
-│   │   ├── dashboard/page.tsx            # Admin stats dashboard
-│   │   ├── employees/
-│   │   │   ├── page.tsx                  # Employee list
-│   │   │   ├── new/page.tsx              # Create employee form
-│   │   │   └── [id]/page.tsx             # Employee detail (edit, availability, actions)
-│   │   ├── roster/page.tsx               # Weekly roster grid
-│   │   ├── shifts/new/page.tsx           # Create shift (single + recurring multi-step)
-│   │   ├── timesheets/
-│   │   │   ├── page.tsx                  # Timesheet list with filters
-│   │   │   └── [id]/page.tsx             # Timesheet review detail
-│   │   └── payments/
-│   │       ├── page.tsx                  # Payment list + create form
-│   │       └── [id]/page.tsx             # Payment detail + mark paid
+│   │   ├── layout.tsx            # Auth guard (admin only)
+│   │   ├── dashboard/page.tsx    # Admin dashboard
+│   │   ├── employees/            # Employee CRUD pages
+│   │   ├── roster/page.tsx       # Mobile-first weekly roster (~1400 lines)
+│   │   ├── shifts/new/page.tsx   # Traditional shift creation form
+│   │   ├── timesheets/           # Timesheet list + detail
+│   │   └── payments/             # Payment list + detail
+│   │
 │   ├── employee/
-│   │   ├── layout.tsx                    # Auth guard (employee role + active + password changed)
-│   │   ├── home/page.tsx                 # Employee dashboard
-│   │   ├── shifts/
-│   │   │   ├── page.tsx                  # Shift list
-│   │   │   └── [id]/page.tsx             # Shift detail (accept/decline/start/finish)
-│   │   ├── start-shift/[id]/page.tsx     # Start shift (photo + odometer)
-│   │   ├── finish-shift/[id]/page.tsx    # Finish shift (photo + odometer + summary)
-│   │   ├── timesheets/page.tsx           # Employee timesheet list
-│   │   ├── payments/page.tsx             # Employee payment list
-│   │   └── profile/page.tsx              # Read-only profile
-│   └── api/
+│   │   ├── layout.tsx            # Auth guard (employee only)
+│   │   ├── home/page.tsx         # Employee dashboard
+│   │   ├── shifts/               # Shift list + detail + accept/decline
+│   │   ├── start-shift/[id]/     # Start shift workflow
+│   │   ├── finish-shift/[id]/    # Finish shift workflow
+│   │   ├── timesheets/           # Timesheet list + detail + corrections
+│   │   ├── payments/             # Payment list
+│   │   └── profile/              # Profile + password change
+│   │
+│   └── api/                      # API routes
 │       ├── auth/
-│       │   ├── setup-admin/route.ts      # One-time admin bootstrap
-│       │   └── password-changed/route.ts # Clear must_change_password flag
-│       ├── employees/
-│       │   ├── route.ts                  # GET list, POST create (auth user + users + employees)
-│       │   └── [id]/
-│       │       ├── route.ts              # GET detail, PUT update, POST actions (disable/enable/reset-password)
-│       │       └── availability/route.ts # GET/PUT weekly availability (delete-and-reinsert)
-│       ├── shifts/
-│       │   ├── route.ts                  # GET list (role-aware, date range), POST create single
-│       │   ├── [id]/
-│       │   │   ├── route.ts              # GET detail, PUT accept/decline
-│       │   │   ├── start/route.ts        # POST start shift (photo upload, attendance, odometer)
-│       │   │   └── finish/route.ts       # POST finish shift (photo, attendance, auto-timesheet)
-│       │   └── recurring/route.ts        # POST preview conflicts OR create recurring shifts
-│       ├── timesheets/
-│       │   ├── route.ts                  # GET list (role-aware, status filter)
-│       │   └── [id]/route.ts             # GET detail, PUT approve/needs_correction
-│       ├── payments/
-│       │   ├── route.ts                  # GET list (role-aware), POST create from approved timesheets
-│       │   └── [id]/route.ts             # GET detail, PUT mark_paid
-│       ├── dashboard/
-│       │   ├── admin/route.ts            # GET admin stats
-│       │   └── employee/route.ts         # GET employee stats
-│       └── profile/route.ts              # GET employee profile
-├── components/
-│   ├── AdminNav.tsx                      # Admin navigation bar
-│   ├── EmployeeNav.tsx                   # Employee navigation bar
-│   └── StatusBadge.tsx                   # Reusable colored status pill
+│       │   ├── setup-admin/      # One-time admin bootstrap
+│       │   └── password-changed/ # Clear must_change_password flag
+│       ├── employees/            # CRUD + availability
+│       ├── shifts/               # CRUD + start/finish + recurring
+│       ├── roster/               # Available employees + copy week
+│       ├── timesheets/           # CRUD + corrections
+│       ├── payments/             # CRUD + mark paid
+│       └── dashboard/            # Admin + employee stats
+│
+├── components/                   # Shared React components
+│   ├── AdminNav.tsx
+│   ├── EmployeeNav.tsx
+│   └── StatusBadge.tsx
+│
 ├── lib/
 │   ├── supabase/
-│   │   ├── client.ts                     # Browser Supabase client (anon key)
-│   │   ├── server.ts                     # Server Supabase client (cookies + anon key)
-│   │   └── admin.ts                      # Admin Supabase client (service role key, bypasses RLS)
-│   ├── services/
-│   │   └── recurringShift.ts             # Recurring date generation, conflict detection
+│   │   ├── client.ts             # Browser client (anon key, RLS enforced)
+│   │   ├── server.ts             # Server client (cookies + anon key, RLS enforced)
+│   │   └── admin.ts              # Admin client (service role key, bypasses RLS)
+│   │
 │   ├── calculations/
-│   │   ├── time.ts                       # Worked minutes, duration formatting
-│   │   ├── mileage.ts                    # Mileage calculation
-│   │   └── payment.ts                    # Wage, mileage amount, total calculation
-│   └── validation/                       # (empty — placeholder for future validators)
+│   │   ├── time.ts               # calculateWorkedMinutes, formatWorkedDuration, minutesToDecimalHours
+│   │   ├── mileage.ts            # calculateMileage
+│   │   └── payment.ts            # calculatePayment → PaymentBreakdown
+│   │
+│   ├── services/
+│   │   ├── shiftValidation.ts    # validateShiftAssignment, requiresEmployeeReconfirmation
+│   │   └── recurringShift.ts     # generateRecurringDates, buildConflictReport
+│   │
+│   └── validation/               # (directory exists, currently empty or minimal)
+│
 ├── types/
-│   ├── database.ts                       # Supabase-generated TypeScript types for all tables
-│   └── index.ts                          # App-level enums (Role, ShiftStatus, etc.) and ApiResponse type
-├── middleware.ts                          # Refreshes Supabase auth session on every request
-└── globals.css                           # Tailwind CSS imports
+│   ├── index.ts                  # Domain enums (Role, ShiftStatus, etc.) + ApiResponse
+│   └── database.ts               # TypeScript types for all DB table rows
+│
+└── middleware.ts                  # Refreshes Supabase auth session on every request
 
 supabase/
 └── migrations/
-    ├── 001_initial_schema.sql            # All tables, enums, indexes, RLS, storage bucket
-    └── 002_recurring_shifts.sql          # Recurring shift columns + recurrence_type enum
+    ├── 001_initial_schema.sql    # All 8 core tables, enums, indexes, triggers, RLS, storage bucket
+    ├── 002_recurring_shifts.sql  # Adds recurrence_type enum + recurring columns to shifts
+    ├── 003_shift_editing.sql     # Adds updated_pending status, shift_audit_log table
+    └── 004_timesheet_corrections.sql  # Adds correction statuses, timesheet_corrections table
 ```
+
+### Key patterns for AI agents to know
+
+1. **API routes use two clients**: Server client for auth check → admin client for mutations.
+2. **`(adminClient as any)`**: Used for tables not in the TypeScript types (timesheet_corrections, shift_audit_log). These tables were added in later migrations and their types weren't regenerated.
+3. **Rate snapshots**: Timesheets store `hourly_rate_snapshot` and `mileage_rate_snapshot` at creation time. Never use live employee rates for past timesheets.
+4. **`business_id` is a plain UUID**: No `businesses` table exists. All business-scoping uses this UUID directly.
+5. **Server timestamps**: Shift start/finish times use `new Date().toISOString()` on the server, never trusting client time.
 
 ---
 
 ## 18. Environment Variables
 
-| Variable | Used By | Purpose |
+| Variable | Location | Purpose |
 |---|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | Browser + Server clients | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Browser + Server clients | Supabase anon/public key (safe for browser) |
-| `SUPABASE_SERVICE_ROLE_KEY` | Admin client (server-only) | Bypasses RLS, never exposed to browser |
+| `NEXT_PUBLIC_SUPABASE_URL` | `.env.local` + Vercel | Supabase project URL. Used by browser + server clients. Public (safe to expose). |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `.env.local` + Vercel | Supabase anon key. Used by browser + server clients. Public (safe to expose, RLS enforced). |
+| `SUPABASE_SERVICE_ROLE_KEY` | `.env.local` + Vercel | Supabase service role key. **SERVER-ONLY.** Used by admin client. Bypasses RLS. **NEVER expose to browser.** |
 
-**⚠️ NEVER put actual keys, passwords, or secrets in this file.**
+**⚠️ No actual key values are stored in this document.**
 
-### Where configured
-- **Local development:** `.env.local` file (git-ignored)
-- **Vercel:** Project Settings → Environment Variables
+The admin client (`src/lib/supabase/admin.ts`) throws an error at startup if `SUPABASE_SERVICE_ROLE_KEY` is missing or empty.
 
 ---
 
 ## 19. Security
 
 ### Authentication security
-- Supabase Auth handles password hashing and session tokens.
-- Passwords are never stored or exposed by the application.
-- Session cookies are httpOnly, managed by Supabase SSR library.
-- Middleware refreshes sessions on every request.
+- Passwords handled exclusively by Supabase Auth (bcrypt-hashed, never stored in app DB).
+- Session cookies refreshed by middleware on every request.
+- Force password change on first login.
+- No OAuth or social login — email/password only.
 
 ### Authorization
-- Every API route checks `supabase.auth.getUser()` first.
-- After auth, the API looks up the app-level `users` record to determine role and business_id.
-- Admin routes verify `role === "admin"`.
-- Employee routes verify `role === "employee"`.
-- Cross-business access is prevented by checking `business_id` on every query.
+- **Layout-level guards**: Admin and employee layouts check role before rendering.
+- **API-level guards**: Every API route checks authentication and role before proceeding.
+- **Double protection**: RLS in database + permission checks in API routes.
 
 ### Row Level Security (RLS)
-All tables have RLS enabled with policies that ensure:
-- Admins can only see data belonging to their `business_id`.
-- Employees can only see their own data.
-- RLS is the database-level safety net; the API layer also checks permissions.
+- Enabled on all 10 tables.
+- Admins scoped to their `business_id` — cannot see other businesses' data.
+- Employees scoped to their own records — cannot see other employees' data.
+- Helper functions (`current_user_role()`, `current_user_business_id()`, `current_employee_id()`) used throughout policies.
 
 ### Admin-only actions
 - Create/edit/disable employees
-- Set availability
 - Create/edit shifts
 - Approve/reject timesheets
-- Create payments, mark as paid
+- Create payments, mark paid
 
 ### Employee restrictions
-- Cannot create, edit, or delete any records except:
-  - Accept/decline own pending shifts
-  - Start/finish own shifts (creates attendance + odometer records)
-- Cannot view other employees' data.
-- Cannot edit their own profile.
+- Can only see their own shifts, timesheets, payments
+- Cannot create shifts or modify other employees' data
+- Cannot approve their own timesheets
 
-### Service role key
-- Only used in `src/lib/supabase/admin.ts` (server-side only).
-- Never imported or referenced in client components.
-- `SUPABASE_SERVICE_ROLE_KEY` is not prefixed with `NEXT_PUBLIC_` so Next.js never bundles it into client code.
+### Server-side secrets
+- `SUPABASE_SERVICE_ROLE_KEY` is only used server-side (API routes). Never imported by client components.
+- Not prefixed with `NEXT_PUBLIC_` so Next.js never bundles it into client code.
 
 ### Known security concerns
-1. **No rate limiting** — API routes have no rate limiting; brute-force login attempts are possible (mitigated somewhat by Supabase Auth's built-in rate limiting).
-2. **No CSRF protection** — API routes use simple `fetch()` without CSRF tokens (mitigated by Supabase session cookies being SameSite).
-3. **No input sanitization** — Text inputs (location, instructions, employee names) are not sanitized for XSS; React's JSX escaping provides protection for rendered content.
-4. **Photo uploads not validated** — File type is based on the `Content-Type` header from the upload; no server-side verification that the file is actually an image.
-5. **Availability delete-and-reinsert** — `PUT /api/employees/[id]/availability` deletes all existing rows and re-inserts; a failure partway through could leave incomplete data.
-6. **No audit logging** — Admin actions (disable employee, approve timesheet, mark paid) are not logged in an audit trail.
+1. **Storage RLS is loose** — any authenticated user can read from the `odometer-photos` bucket. App-level API access control is the real gate, but a motivated user could craft direct Supabase Storage requests.
+2. **No rate limiting** — API routes don't rate-limit requests.
+3. **No CSRF protection beyond session cookies** — relies on same-origin policy + Supabase session tokens.
+4. **`(adminClient as any)` casts** — bypass TypeScript type checking for newer tables. No runtime safety risk, but reduces compile-time catching of column name errors.
+5. **Single admin per business** — no concept of admin roles/permissions (all admins in a business have equal access).
+6. **No input sanitization** — text inputs not sanitized for XSS; React's JSX escaping provides protection for rendered content.
 
 ---
 
 ## 20. Current Problems / Technical Debt
 
 ### Known bugs
-- None currently identified (basic flows work end-to-end).
+- None confirmed at present. End-to-end testing (Phase 13) has not been performed.
 
 ### Temporary implementations
-1. **`any` type casts** — `timesheets/[id]/route.ts` uses `as { data: any }` to work around TypeScript join type issues.
-2. **eslint-disable comments** — `recurringShift.ts` and `recurring/route.ts` have `@typescript-eslint/no-explicit-any` disables.
-3. **Draft shifts** — The "Save as Draft" button on recurring shift creation doesn't actually set a different status; all shifts are created as `pending`.
+1. **`(adminClient as any)` type casts** for `timesheet_corrections` and `shift_audit_log` tables — should regenerate Supabase types to include these tables.
+2. **Login email mapping** — appends `@workforce.app` if no `@` is present. Works but is a V1 workaround rather than a proper username system.
 
 ### Missing validation
-1. **Date validation** — Shift creation doesn't prevent creating shifts in the past.
-2. **Time validation** — No check that `scheduled_finish > scheduled_start` (or that shifts don't span midnight).
-3. **Odometer reading validation** — Only checks non-negative and finish ≥ start; no sanity check for unreasonable values.
-4. **Employee number uniqueness** — Enforced at DB level but error message is generic.
-5. **Concurrent shift starts** — No pessimistic locking; two requests could theoretically both pass the "not already started" check.
+1. **No maximum shift duration** — shifts of any length can be created.
+2. **No odometer continuity check** — today's start reading isn't validated against yesterday's end reading.
+3. **No photo validation** — any file type is accepted as an "odometer photo" (no image format verification).
+4. **No duplicate payment prevention** — possible to create overlapping payment periods for the same employee.
+5. **No past-date shift validation** — shifts can be created for dates in the past.
 
-### Missing features
-1. **Odometer photo display** — Timesheet detail API fetches odometer submissions but the admin review page doesn't display the actual photos.
-2. **Timezone handling** — All dates/times use JavaScript's default Date behavior; AEST conversion is not explicitly handled.
-3. **Pagination** — No pagination on any list endpoint; all records are returned.
-4. **Search/filter** — Employee list has no search; shift list has no employee filter.
-5. **Error recovery** — Employee creation has a rollback pattern, but shift finish does not roll back attendance if timesheet creation fails (intentional — returns partial success message).
+### Code that needs refactoring
+1. **Roster page is ~1400 lines** — `src/app/admin/roster/page.tsx` is a very large single file. Could be split into sub-components.
+2. **No shared error handling** — each API route has its own try/catch pattern. Could be centralized.
+3. **No API response type consistency** — some routes return `{ success: true }`, others return `{ data: ... }`, others return arrays directly.
+4. **Duplicated auth boilerplate** — every API route has the same 10+ lines to check auth and get appUser.
 
-### Code quality
-1. **Duplicated auth boilerplate** — Every API route has the same 10+ lines to check auth and get appUser. Could be extracted into a middleware or helper.
-2. **No testing** — Zero test files. No unit tests, integration tests, or end-to-end tests.
-3. **No loading skeletons** — All pages show "Loading…" text instead of skeleton UI.
-4. **Validation library** — `src/lib/validation/` directory exists but is empty; validation is inline in API routes.
+### Features that are incomplete
+1. **No notifications** — employees have no way to be alerted about new/changed shifts.
+2. **No shift cancellation UI** — the `cancelled` status exists in the DB but there's no UI to cancel a shift.
+3. **`src/lib/validation/` directory** — exists but appears empty or minimal. Input validation is spread across API routes rather than centralized.
+4. **No pagination** — all list endpoints return all records.
+5. **No automated tests** — zero test files exist.
 
 ---
 
 ## 21. Deployment
 
 ### Current deployment
-- **Live URL:** https://workforce-app-sigma-rouge.vercel.app
-- **GitHub repo:** https://github.com/sirtonmoy00123-star/workforce-app (public)
-- **Vercel account:** sirtonmoy00123-star
-- **Supabase project:** rqnevhgkfvkmspmtnera
+- **Live URL:** Deployed on Vercel (auto-deploy from GitHub main branch)
+- **GitHub repo:** `https://github.com/sirtonmoy00123-star/workforce-app.git`
+- **Supabase project ID:** `rqnevhgkfvkmspmtnera`
 
 ### How updates reach production
 ```
 1. Edit code locally
 2. git add + git commit
 3. git push origin main
-4. Vercel auto-detects the push and starts a build
-5. Vercel runs `npm run build` (Next.js production build)
-6. If build succeeds → deployed to production URL
-7. If build fails → previous deployment stays live
+4. Vercel auto-detects the push and runs `next build`
+5. If build succeeds → deployed to production URL
+6. If build fails → previous deployment stays live
 ```
 
-### Supabase configuration
-- **Auth URL Configuration:**
-  - Site URL: `https://workforce-app-sigma-rouge.vercel.app`
-  - Redirect URLs: `https://workforce-app-sigma-rouge.vercel.app/**`
-- **Storage:** `odometer-photos` bucket (private, RLS-protected)
+### Environment variables on Vercel
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
+### Database migrations
+- **NOT auto-deployed.** SQL migration files in `supabase/migrations/` must be run manually in the Supabase SQL Editor.
+- Migrations should be run in order: 001 → 002 → 003 → 004.
+- Each migration is idempotent (uses `IF NOT EXISTS`, `ADD VALUE IF NOT EXISTS`).
 
 ### Local development
 ```bash
-# Install dependencies
 npm install
-
-# Create .env.local with:
-# NEXT_PUBLIC_SUPABASE_URL=https://rqnevhgkfvkmspmtnera.supabase.co
-# NEXT_PUBLIC_SUPABASE_ANON_KEY=<your-anon-key>
-# SUPABASE_SERVICE_ROLE_KEY=<your-service-role-key>
-
-# Start dev server
 npm run dev
 # → http://localhost:3000
+# Requires .env.local with all three environment variables
 ```
 
 ---
 
 ## 22. Development History
 
-| Decision | Rationale |
-|---|---|
-| Next.js 16 App Router | Latest framework with server components support, good Supabase integration |
-| Three Supabase clients | Browser (auth only), Server (session cookies), Admin (bypass RLS for trusted server operations) |
-| Admin client for data operations | Server-side permission checks + admin client ensures consistent access without fighting RLS policy complexity |
-| `userId@workforce.app` email format | Allows employees to login with simple user IDs while Supabase Auth requires email format |
-| Rate snapshots on timesheets | Prevents retroactive changes when admin updates employee rates |
-| Server timestamps for attendance | `new Date().toISOString()` on the server, not client-submitted times, to prevent tampering |
-| Recurring shift `recurring_group_id` | UUID links all shifts in a recurrence group for future bulk operations |
-| Delete-and-reinsert for availability | Simpler than upsert logic for 7-day availability |
-| Client-side rendering for all pages | Simpler state management with `useState`/`useEffect`; server components only for auth guard layouts |
-| Photo upload via FormData | Standard multipart approach; Supabase Storage handles the rest |
-| Atomic bulk insert for recurring shifts | All shifts in a recurrence group are inserted in one Supabase call |
+### Key decisions
+
+1. **Layered folder structure** — Business logic separated from UI: `lib/services/` for logic, `lib/calculations/` for pure functions, `app/api/` for routes, `app/` for pages. Chosen for maintainability and testability.
+
+2. **Three Supabase clients** — Browser (public), server (cookies + anon), admin (service role). The admin client bypasses RLS for server-side mutations where the API route has already verified permissions.
+
+3. **Rate snapshots on timesheets** — `hourly_rate_snapshot` and `mileage_rate_snapshot` are captured at timesheet creation. This prevents retroactive pay changes when employee rates are updated.
+
+4. **`business_id` as plain UUID** — No `businesses` table exists. This was a deliberate V1 simplification. Multi-admin or multi-business support would require a proper `businesses` table.
+
+5. **Server timestamps only** — Shift start/finish times use `new Date().toISOString()` on the server. Client-provided timestamps are never used for attendance records.
+
+6. **Auto-timesheet generation** — Timesheets are created automatically when an employee finishes a shift. No manual timesheet entry. If generation fails, the shift is still marked completed and the admin is told to review.
+
+7. **Updated_pending reconfirmation** — When an admin edits an accepted shift's date/time/location, the status changes to `updated_pending` and the employee must re-accept. This was added to prevent silent schedule changes.
+
+8. **Mobile-first roster redesign** — The roster page was completely rewritten with bottom sheets replacing modals, day-card layout for mobile, and a 3-step shift creation flow. Desktop table view was preserved as a responsive breakpoint.
+
+9. **Timesheet correction workflow** — Instead of allowing direct edits to timesheets, corrections go through a formal request/submit/review cycle. This preserves an audit trail of what was originally recorded vs. what was corrected.
+
+10. **`userId@workforce.app` email format** — Allows employees to log in with simple user IDs while Supabase Auth requires email format.
+
+11. **Client-side rendering for pages** — All interactive pages are `"use client"` with `useState`/`useEffect`. Server components are only used for auth guard layouts.
 
 ---
 
 ## 23. Next Development Priorities
 
-1. **Phase 13: End-to-end test** — Run the complete "John Smith" scenario from the spec. Verify every step works from employee creation through payment.
-2. **Display odometer photos** — Show start/finish photos on the admin timesheet review page.
-3. **Shift editing & cancellation** — Allow admins to edit shift details or cancel shifts after creation.
-4. **Timezone handling** — Implement proper AEST (Australia/Sydney) conversion for display and storage.
-5. **Date/time validation** — Prevent past dates, validate finish > start time, handle edge cases.
-6. **Pagination** — Add cursor/offset pagination to all list endpoints.
-7. **Notification system** — At minimum, in-app notifications for new shifts and timesheet status changes.
-8. **Extract auth boilerplate** — Create a shared middleware/helper for the repeated auth + appUser lookup pattern.
-9. **Input validation library** — Populate `src/lib/validation/` with reusable validators.
-10. **Automated tests** — Unit tests for calculation helpers, integration tests for API routes.
-11. **Audit logging** — Track admin actions (who approved what, when).
-12. **Loading skeletons** — Replace "Loading…" text with proper skeleton UI components.
+1. **Phase 13: Security review & end-to-end test** — Run the full John Smith test scenario. Verify RLS policies prevent cross-business and cross-employee access.
+
+2. **Regenerate Supabase types** — Update `src/types/database.ts` to include `shift_audit_log` and `timesheet_corrections` tables, eliminating all `(adminClient as any)` casts.
+
+3. **Employee notifications** — Implement push or email notifications for new shifts, shift changes, and correction requests.
+
+4. **Shift cancellation UI** — Add a "Cancel Shift" button for admins with a reason field.
+
+5. **Input validation centralization** — Move validation from individual API routes into `src/lib/validation/` helpers.
+
+6. **Roster page refactoring** — Split the ~1400-line roster page into smaller components.
+
+7. **Photo validation** — Verify uploaded files are actually images (check MIME type / magic bytes).
+
+8. **Rate limiting** — Add rate limiting to API routes to prevent abuse.
+
+9. **Storage RLS tightening** — Restrict `odometer-photos` bucket read access so employees can only read their own photos.
+
+10. **Pagination** — Add cursor/offset pagination to all list endpoints.
+
+11. **Automated tests** — Unit tests for calculation helpers, integration tests for API routes.
+
+12. **Reporting** — Weekly/monthly summaries of hours, mileage, and payments.
 
 ---
+
+## 24. AI Coding Agent Rules
 
 ## AI CODING AGENT RULES
 
@@ -1053,3 +1198,13 @@ Whenever an AI coding agent works on this project:
 13. Record new database tables, columns, migrations, environment variables, and APIs.
 14. Record important architectural decisions.
 15. Keep documentation concise enough that a new Claude Code session can understand the project without reading previous conversations.
+
+### Architecture guidelines
+
+- **API routes**: Always authenticate with the server client first, then use the admin client for mutations. Never skip auth checks.
+- **Calculations**: Use `src/lib/calculations/` pure functions. Always use rate snapshots for payment calculations.
+- **Validation**: Use `src/lib/services/shiftValidation.ts` for shift assignment validation. Add new validators to `src/lib/validation/`.
+- **Types**: Use enums from `src/types/index.ts`. Use database row types from `src/types/database.ts`.
+- **Supabase clients**: Never use the admin client on the browser side. Never import `src/lib/supabase/admin.ts` in client components.
+- **Database changes**: Create a new numbered migration file in `supabase/migrations/`. Use `IF NOT EXISTS` for idempotency. Add RLS policies for new tables.
+- **`business_id`**: Always scope queries by `business_id` for admin access. There is no `businesses` table — `business_id` is a plain UUID column.

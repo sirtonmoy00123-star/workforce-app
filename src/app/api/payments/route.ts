@@ -138,6 +138,7 @@ export async function POST(request: NextRequest) {
       .from("payments")
       .insert({
         employee_id,
+        business_id: appUser.business_id,
         period_start,
         period_end,
         total_hours: totalHours,

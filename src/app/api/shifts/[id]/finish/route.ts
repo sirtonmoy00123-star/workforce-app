@@ -121,6 +121,7 @@ export async function POST(
       .insert({
         shift_id: shiftId,
         employee_id: employee.id,
+        business_id: shift.business_id,
         submission_type: "FINISH",
         photo_path: fileName,
         odometer_reading: odometerReading,
@@ -174,6 +175,7 @@ export async function POST(
       .insert({
         shift_id: shiftId,
         employee_id: employee.id,
+        business_id: shift.business_id,
         scheduled_start: shift.scheduled_start,
         scheduled_finish: shift.scheduled_finish,
         actual_start: attendance.actual_start!,

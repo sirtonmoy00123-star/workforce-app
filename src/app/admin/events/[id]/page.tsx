@@ -123,7 +123,7 @@ export default function EventDetailPage() {
         body: JSON.stringify({ action: "cancel" }),
       });
       if (res.ok) {
-        router.push("/admin/roster");
+        router.push("/admin/events");
       }
     } catch { /* ignore */ }
     setCancelling(false);
@@ -159,7 +159,7 @@ export default function EventDetailPage() {
     <div className="max-w-lg mx-auto">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
-        <Link href="/admin/roster" className="text-gray-400 hover:text-gray-600 text-2xl">‹</Link>
+        <Link href="/admin/events" className="text-gray-400 hover:text-gray-600 text-2xl">‹</Link>
         <div className="flex-1">
           <h1 className="text-xl font-bold text-gray-900">{event.name}</h1>
           <span className={`inline-block mt-1 text-xs font-medium px-2 py-0.5 rounded-full ${statusColor(event.status)}`}>
@@ -311,7 +311,7 @@ export default function EventDetailPage() {
       {isActive && (
         <div className="space-y-2 mb-4">
           <Link
-            href={`/admin/events/new?date=${event.event_date}&startTime=${new Date(event.start_time).toTimeString().slice(0,5)}&finishTime=${new Date(event.finish_time).toTimeString().slice(0,5)}&location=${event.location || ""}`}
+            href={`/admin/events/${event.id}/edit`}
             className="block w-full border border-gray-300 text-gray-700 rounded-xl py-3 text-sm
                        font-medium hover:bg-gray-50 transition-colors text-center"
           >
@@ -353,11 +353,11 @@ export default function EventDetailPage() {
 
       {/* Back */}
       <Link
-        href="/admin/roster"
+        href="/admin/events"
         className="block w-full border border-gray-300 text-gray-700 rounded-xl py-3 text-sm
                    font-medium hover:bg-gray-50 transition-colors text-center"
       >
-        Back to Roster
+        Back to Events
       </Link>
     </div>
   );

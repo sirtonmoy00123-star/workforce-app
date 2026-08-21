@@ -11,6 +11,7 @@ interface Shift {
   scheduled_finish: string;
   location: string | null;
   status: string;
+  event_id: string | null;
 }
 
 function formatTime(iso: string): string {
@@ -33,13 +34,35 @@ function formatDate(dateStr: string): string {
 
 export default function EmployeeShiftsPage() {
   const [shifts, setShifts] = useState<Shift[]>([]);
+  const [eventNames, setEventNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetch("/api/shifts")
       .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data)) setShifts(data);
+      .then(async (data) => {
+        if (Array.isArray(data)) {
+          setShifts(data);
+          // Fetch event names for event-linked shifts
+          const eventIds = [...new Set(data.filter((s: Shift) => s.event_id).map((s: Shift) => s.event_id))];
+          if (eventIds.length > 0) {
+            try {
+              const eventsRes = await fetch("/api/events?upcoming=true");
+              const events = await eventsRes.json();
+              if (Array.isArray(events)) {
+                const names: Record<string, string> = {};
+                events.forEach((e: { id: string; name: string }) => { names[e.id] = e.name; });
+                // Also fetch all events in case some are past
+                const allRes = await fetch("/api/events");
+                const allEvents = await allRes.json();
+                if (Array.isArray(allEvents)) {
+                  allEvents.forEach((e: { id: string; name: string }) => { names[e.id] = e.name; });
+                }
+                setEventNames(names);
+              }
+            } catch { /* ignore */ }
+          }
+        }
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -63,8 +86,17 @@ export default function EmployeeShiftsPage() {
           <Link
             key={shift.id}
             href={`/employee/shifts/${shift.id}`}
-            className="block bg-white rounded-xl border border-gray-200 p-4 hover:border-blue-300 transition-colors"
+            className={`block rounded-xl border p-4 transition-colors ${
+              shift.event_id
+                ? "bg-purple-50 border-purple-200 hover:border-purple-400"
+                : "bg-white border-gray-200 hover:border-blue-300"
+            }`}
           >
+            {shift.event_id && eventNames[shift.event_id] && (
+              <div className="text-[11px] font-medium text-purple-600 mb-1">
+                ⚽ {eventNames[shift.event_id]}
+              </div>
+            )}
             <div className="flex items-center justify-between mb-2">
               <span className="font-medium text-gray-900">{formatDate(shift.date)}</span>
               <StatusBadge status={shift.status} />

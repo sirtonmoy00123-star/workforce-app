@@ -13,18 +13,41 @@ interface DashboardStats {
   unpaidAmount: number;
 }
 
+interface UpcomingEvent {
+  id: string;
+  name: string;
+  event_date: string;
+  start_time: string;
+  finish_time: string;
+  status: string;
+  event_staffing_requirements: {
+    required_count: number;
+    filled_count: number;
+  }[];
+}
+
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString("en-AU", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
 export default function AdminDashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/dashboard/admin")
-      .then((res) => res.json())
-      .then((data) => {
-        if (!data.error) setStats(data);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+    Promise.all([
+      fetch("/api/dashboard/admin").then((r) => r.json()),
+      fetch("/api/events?upcoming=true").then((r) => r.json()),
+    ]).then(([dashData, eventsData]) => {
+      if (!dashData.error) setStats(dashData);
+      if (Array.isArray(eventsData)) setUpcomingEvents(eventsData);
+      setLoading(false);
+    }).catch(() => setLoading(false));
   }, []);
 
   if (loading) return <div className="text-center py-12 text-gray-500">Loading dashboard…</div>;
@@ -79,9 +102,57 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
+      {/* Upcoming Events */}
+      {upcomingEvents.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-semibold text-gray-900">Upcoming Events</h2>
+            <Link href="/admin/events" className="text-xs text-blue-600 hover:underline">View all</Link>
+          </div>
+          <div className="space-y-2">
+            {upcomingEvents.slice(0, 3).map((evt) => {
+              const req = evt.event_staffing_requirements?.[0];
+              const filled = req?.filled_count || 0;
+              const required = req?.required_count || 0;
+              const isFull = filled >= required;
+              return (
+                <Link
+                  key={evt.id}
+                  href={`/admin/events/${evt.id}`}
+                  className="block p-3 rounded-lg border border-gray-100 hover:border-blue-200 hover:bg-blue-50 transition-colors"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-medium text-gray-900">⚽ {evt.name}</div>
+                      <div className="text-xs text-gray-500">
+                        {new Date(evt.event_date + "T00:00:00").toLocaleDateString("en-AU", {
+                          weekday: "short", day: "numeric", month: "short",
+                        })}
+                        {" · "}{formatTime(evt.start_time)} – {formatTime(evt.finish_time)}
+                      </div>
+                    </div>
+                    {isFull ? (
+                      <span className="text-xs font-medium text-green-600">✓ {filled}/{required}</span>
+                    ) : (
+                      <span className="text-xs font-medium text-amber-600">⚠ {filled}/{required}</span>
+                    )}
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Quick Actions */}
       <h2 className="font-semibold text-gray-900 mb-3">Quick Actions</h2>
       <div className="space-y-2">
+        <Link
+          href="/admin/events/new"
+          className="block bg-purple-50 rounded-lg p-3 text-sm font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+        >
+          🎪 Event Staffing
+        </Link>
         <Link
           href="/admin/shifts/new"
           className="block bg-blue-50 rounded-lg p-3 text-sm font-medium text-blue-700 hover:bg-blue-100 transition-colors"

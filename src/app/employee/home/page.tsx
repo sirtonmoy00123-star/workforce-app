@@ -21,6 +21,22 @@ interface RecentTimesheet {
   status: string;
 }
 
+interface PendingOffer {
+  recipient_id: string;
+  event: {
+    name: string;
+    event_date: string;
+    start_time: string;
+    finish_time: string;
+    location: string | null;
+  } | null;
+  offer: {
+    role: string;
+    positions_required: number;
+    positions_filled: number;
+  } | null;
+}
+
 interface DashboardData {
   employeeName: string;
   upcomingShifts: UpcomingShift[];
@@ -56,16 +72,20 @@ function formatDuration(minutes: number): string {
 
 export default function EmployeeHomePage() {
   const [data, setData] = useState<DashboardData | null>(null);
+  const [pendingOffers, setPendingOffers] = useState<PendingOffer[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/dashboard/employee")
-      .then((res) => res.json())
-      .then((d) => {
-        if (!d.error) setData(d);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+    Promise.all([
+      fetch("/api/dashboard/employee").then((r) => r.json()),
+      fetch("/api/offers/my").then((r) => r.json()),
+    ]).then(([dashData, offersData]) => {
+      if (!dashData.error) setData(dashData);
+      if (Array.isArray(offersData)) {
+        setPendingOffers(offersData.filter((o: { recipient_status: string }) => o.recipient_status === "PENDING"));
+      }
+      setLoading(false);
+    }).catch(() => setLoading(false));
   }, []);
 
   if (loading) return <div className="text-center py-12 text-gray-500">Loading…</div>;
@@ -90,6 +110,29 @@ export default function EmployeeHomePage() {
               <div className="font-bold text-purple-800">Shift In Progress</div>
               <div className="text-sm text-purple-600">
                 Started at {formatTime(data.activeShift.actual_start)} — Tap to finish
+              </div>
+            </div>
+          </div>
+        </Link>
+      )}
+
+      {/* Pending Offers Alert */}
+      {pendingOffers.length > 0 && (
+        <Link
+          href="/employee/offers"
+          className="block bg-amber-50 border-2 border-amber-300 rounded-xl p-4 mb-4"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-lg">🔔</span>
+            <div>
+              <div className="font-bold text-amber-800">
+                {pendingOffers.length} Open Shift Offer{pendingOffers.length !== 1 ? "s" : ""}
+              </div>
+              <div className="text-sm text-amber-600">
+                {pendingOffers[0]?.event?.name
+                  ? `${pendingOffers[0].event.name} — Tap to respond`
+                  : "Tap to view and respond"
+                }
               </div>
             </div>
           </div>
@@ -173,6 +216,17 @@ export default function EmployeeHomePage() {
 
       {/* Quick Links */}
       <div className="space-y-2">
+        <Link
+          href="/employee/offers"
+          className="block bg-purple-50 rounded-lg p-3 text-sm font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+        >
+          🎪 Open Shift Offers
+          {pendingOffers.length > 0 && (
+            <span className="ml-2 bg-amber-100 text-amber-700 text-xs px-2 py-0.5 rounded-full">
+              {pendingOffers.length} new
+            </span>
+          )}
+        </Link>
         <Link
           href="/employee/shifts"
           className="block bg-blue-50 rounded-lg p-3 text-sm font-medium text-blue-700 hover:bg-blue-100 transition-colors"

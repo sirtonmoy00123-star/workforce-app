@@ -63,10 +63,59 @@ export async function POST(
       return NextResponse.json({ error: "Start odometer record not found." }, { status: 400 });
     }
 
+    // Check task proof requirements
+    const { data: proofRequirements } = await adminClient
+      .from("task_proof_requirements")
+      .select("*")
+      .eq("shift_id", shiftId)
+      .eq("business_id", ctx.businessId);
+
+    let taskProofMissing = false;
+    let taskProofMissingDetails: string[] = [];
+
+    if (proofRequirements && proofRequirements.length > 0) {
+      // Get submissions for this shift
+      const { data: proofSubmissions } = await adminClient
+        .from("task_proof_submissions")
+        .select("requirement_id, status")
+        .eq("shift_id", shiftId)
+        .eq("employee_id", ctx.employeeId)
+        .in("status", ["SUBMITTED", "APPROVED"]);
+
+      for (const req of proofRequirements) {
+        if (!req.is_required) continue;
+        const subs = (proofSubmissions || []).filter((s) => s.requirement_id === req.id);
+        if (subs.length < req.minimum_photos) {
+          taskProofMissing = true;
+          taskProofMissingDetails.push(`${req.proof_type} photo (${subs.length}/${req.minimum_photos})`);
+
+          // If this requirement blocks finishing, reject
+          if (!req.allow_finish_without_proof) {
+            return NextResponse.json({
+              error: `Required ${req.proof_type.toLowerCase()} proof must be submitted before finishing this shift.`,
+              proofBlocked: true,
+              missingProof: taskProofMissingDetails,
+            }, { status: 400 });
+          }
+        }
+      }
+    }
+
     // Parse the form data
     const formData = await request.formData();
     const photo = formData.get("photo") as File | null;
     const odometerReading = parseFloat(formData.get("odometer_reading") as string);
+    const forceFinish = formData.get("forceFinish") === "true";
+
+    // If proof is missing but allowed to finish, require explicit acknowledgment
+    if (taskProofMissing && !forceFinish) {
+      return NextResponse.json({
+        warning: true,
+        message: "Task proof is incomplete. You can still finish, but it will be flagged for admin review.",
+        missingProof: taskProofMissingDetails,
+        requiresForce: true,
+      }, { status: 409 });
+    }
 
     if (!photo) {
       return NextResponse.json({ error: "Odometer photo is required." }, { status: 400 });

@@ -33,7 +33,12 @@
       "Bash(git commit -m 'Phase 1: Tenant foundation - businesses table, business_members, tenant context helper *)",
       "PowerShell(npx tsc --noEmit 2>&1)",
       "PowerShell(npm run build 2>&1)",
-      "Bash(git commit -m 'Event Staffing Phase 1: tables, event creation, employee type fields *)"
+      "Bash(git commit -m 'Event Staffing Phase 1: tables, event creation, employee type fields *)",
+      "PowerShell(npx next build 2>&1)",
+      "PowerShell(git add src/app/admin/dashboard/page.tsx src/app/admin/events/[id]/page.tsx src/app/admin/events/[id]/edit/page.tsx src/app/employee/home/page.tsx src/app/employee/shifts/page.tsx)",
+      "Bash(git commit -m 'Event Staffing Phases 5-9: edit event, dashboards, employee UX, security audit *)",
+      "Bash(git commit -m 'Task Proof Phase 2: Admin shift creation with proof config *)",
+      "Bash(git commit -m 'Task Proof Phase 3: Employee photo upload *)"
     ]
   }
 }

@@ -177,6 +177,12 @@ export default function AdminDashboardPage() {
         >
           💰 Manage Payments
         </Link>
+        <Link
+          href="/admin/task-proof-templates"
+          className="block bg-gray-50 rounded-lg p-3 text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors"
+        >
+          📷 Task Proof Templates
+        </Link>
       </div>
     </div>
   );

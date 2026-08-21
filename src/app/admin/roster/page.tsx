@@ -192,6 +192,10 @@ export default function RosterPage() {
   // Selected shift (for shift detail / edit)
   const [selectedShift, setSelectedShift] = useState<Shift | null>(null);
 
+  // Task proof data for selected shift
+  const [shiftProofReqs, setShiftProofReqs] = useState<{ id: string; proof_type: string; is_required: boolean; minimum_photos: number }[]>([]);
+  const [shiftProofSubs, setShiftProofSubs] = useState<{ id: string; requirement_id: string; status: string; photo_url: string | null; server_timestamp: string; proof_type: string; employee_note: string | null }[]>([]);
+
   // ── Edit shift state ──
   const [editDate, setEditDate] = useState("");
   const [editStartTime, setEditStartTime] = useState("");
@@ -320,6 +324,16 @@ export default function RosterPage() {
     setSheetOpen(true);
     setSaveSuccess("");
     setSaveError("");
+    // Fetch task proof data
+    setShiftProofReqs([]);
+    setShiftProofSubs([]);
+    Promise.all([
+      fetch(`/api/task-proof/requirements?shiftId=${shift.id}`).then((r) => r.json()),
+      fetch(`/api/task-proof/submissions?shiftId=${shift.id}`).then((r) => r.json()),
+    ]).then(([reqs, subs]) => {
+      if (Array.isArray(reqs)) setShiftProofReqs(reqs);
+      if (Array.isArray(subs)) setShiftProofSubs(subs);
+    }).catch(() => {});
     setReviewError("");
     setPreview(null);
     setChangeReason("");
@@ -1206,6 +1220,62 @@ export default function RosterPage() {
                         </div>
                       )}
                     </div>
+
+                    {/* Task Proof Section */}
+                    {shiftProofReqs.length > 0 && (
+                      <div className="bg-gray-50 rounded-xl p-4 space-y-2">
+                        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">📷 Task Proof</h3>
+                        {(() => {
+                          const activeSubs = shiftProofSubs.filter((s) => s.status !== "REPLACED");
+                          const requiredReqs = shiftProofReqs.filter((r) => r.is_required);
+                          const completedReqs = requiredReqs.filter((r) => {
+                            const count = activeSubs.filter((s) => s.requirement_id === r.id).length;
+                            return count >= r.minimum_photos;
+                          });
+                          const allComplete = completedReqs.length >= requiredReqs.length;
+                          const totalPhotos = activeSubs.length;
+
+                          return (
+                            <>
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-gray-600">
+                                  {totalPhotos} photo{totalPhotos !== 1 ? "s" : ""} submitted
+                                </span>
+                                {requiredReqs.length > 0 && (
+                                  allComplete ? (
+                                    <span className="text-green-600 font-medium text-xs">✓ Complete</span>
+                                  ) : (
+                                    <span className="text-amber-600 font-medium text-xs">⚠ {completedReqs.length}/{requiredReqs.length} required</span>
+                                  )
+                                )}
+                              </div>
+                              {/* Photo thumbnails */}
+                              {activeSubs.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5 mt-1">
+                                  {activeSubs.map((sub) => (
+                                    <div key={sub.id} className="relative">
+                                      {sub.photo_url ? (
+                                        <img
+                                          src={sub.photo_url}
+                                          alt={`${sub.proof_type} proof`}
+                                          className="w-14 h-14 object-cover rounded-lg border border-gray-200 cursor-pointer"
+                                          onClick={() => window.open(sub.photo_url!, "_blank")}
+                                        />
+                                      ) : (
+                                        <div className="w-14 h-14 bg-gray-200 rounded-lg flex items-center justify-center text-xs text-gray-400">📷</div>
+                                      )}
+                                      <div className="absolute -bottom-0.5 left-0 right-0 text-center">
+                                        <span className="text-[8px] bg-gray-800/70 text-white px-1 rounded">{sub.proof_type}</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    )}
 
                     {reviewError && (
                       <div className="bg-red-50 text-red-700 text-sm rounded-lg p-3 border border-red-200 mb-4">

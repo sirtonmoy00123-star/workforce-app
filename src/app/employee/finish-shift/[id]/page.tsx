@@ -51,6 +51,9 @@ export default function FinishShiftPage() {
   const [success, setSuccess] = useState(false);
   const [timesheet, setTimesheet] = useState<TimesheetResult | null>(null);
 
+  // Task proof warning state
+  const [proofWarning, setProofWarning] = useState<{ message: string; missingProof: string[] } | null>(null);
+
   // Form state
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
@@ -80,7 +83,7 @@ export default function FinishShiftPage() {
     }
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent, forceFinish = false) {
     e.preventDefault();
     if (!photo) {
       setError("Please take or upload an odometer photo.");
@@ -93,10 +96,12 @@ export default function FinishShiftPage() {
 
     setSubmitting(true);
     setError("");
+    setProofWarning(null);
 
     const formData = new FormData();
     formData.append("photo", photo);
     formData.append("odometer_reading", odometerReading);
+    if (forceFinish) formData.append("forceFinish", "true");
 
     try {
       const res = await fetch(`/api/shifts/${shiftId}/finish`, {
@@ -105,8 +110,23 @@ export default function FinishShiftPage() {
       });
       const data = await res.json();
 
+      // Handle proof warning (409 = missing proof but can continue)
+      if (res.status === 409 && data.requiresForce) {
+        setProofWarning({
+          message: data.message,
+          missingProof: data.missingProof || [],
+        });
+        setSubmitting(false);
+        return;
+      }
+
       if (!res.ok) {
-        setError(data.error || "Failed to finish shift.");
+        // Handle blocked by proof requirement
+        if (data.proofBlocked) {
+          setError(data.error);
+        } else {
+          setError(data.error || "Failed to finish shift.");
+        }
         setSubmitting(false);
         return;
       }
@@ -268,15 +288,52 @@ export default function FinishShiftPage() {
             />
           </div>
 
+          {/* Task Proof Warning */}
+          {proofWarning && (
+            <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-amber-600 text-lg">⚠️</span>
+                <span className="font-bold text-amber-800 text-sm">Task Proof Missing</span>
+              </div>
+              <p className="text-sm text-amber-700 mb-2">{proofWarning.message}</p>
+              {proofWarning.missingProof.length > 0 && (
+                <ul className="text-xs text-amber-600 mb-3 space-y-0.5">
+                  {proofWarning.missingProof.map((m, i) => (
+                    <li key={i}>• {m}</li>
+                  ))}
+                </ul>
+              )}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => router.push(`/employee/shifts/${shiftId}`)}
+                  className="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-medium"
+                >
+                  📷 Add Photo
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => handleSubmit(e as unknown as React.FormEvent, true)}
+                  disabled={submitting}
+                  className="flex-1 bg-amber-600 text-white rounded-lg py-2.5 text-sm font-medium disabled:opacity-50"
+                >
+                  {submitting ? "Finishing…" : "Finish Anyway"}
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Submit */}
-          <button
-            type="submit"
-            disabled={submitting || !photo || !odometerReading}
-            className="w-full bg-red-600 text-white rounded-lg py-3.5 text-base font-bold
-                       hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {submitting ? "Finishing Shift…" : "🏁 CONFIRM & FINISH SHIFT"}
-          </button>
+          {!proofWarning && (
+            <button
+              type="submit"
+              disabled={submitting || !photo || !odometerReading}
+              className="w-full bg-red-600 text-white rounded-lg py-3.5 text-base font-bold
+                         hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {submitting ? "Finishing Shift…" : "🏁 CONFIRM & FINISH SHIFT"}
+            </button>
+          )}
         </form>
       </div>
     </div>

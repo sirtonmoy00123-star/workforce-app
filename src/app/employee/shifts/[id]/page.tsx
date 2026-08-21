@@ -172,6 +172,30 @@ export default function ShiftDetailPage() {
     setUploading(null);
   }
 
+  async function handleCorrectionUpload(submissionId: string, file: File) {
+    setUploading(submissionId);
+    setUploadError("");
+    try {
+      const formData = new FormData();
+      formData.append("photo", file);
+
+      const res = await fetch(`/api/task-proof/${submissionId}/correct`, {
+        method: "PUT",
+        body: formData,
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setUploadError(data.error || "Replacement upload failed.");
+      } else {
+        await loadProofData(id);
+      }
+    } catch {
+      setUploadError("Replacement upload failed. Please try again.");
+    }
+    setUploading(null);
+  }
+
   function getSubmissionsForReq(reqId: string): ProofSubmission[] {
     return proofSubmissions.filter(
       (s) => s.requirement_id === reqId && s.status !== "REPLACED"
@@ -332,25 +356,59 @@ export default function ShiftDetailPage() {
 
                     {/* Uploaded photos */}
                     {subs.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mb-2">
+                      <div className="space-y-2 mb-2">
                         {subs.map((sub) => (
-                          <div key={sub.id} className="relative">
-                            {sub.photo_url ? (
-                              <img
-                                src={sub.photo_url}
-                                alt={`${pt.label} proof`}
-                                className="w-16 h-16 object-cover rounded-lg border border-gray-200"
-                              />
-                            ) : (
-                              <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center text-xs text-gray-400">
-                                📷
+                          <div key={sub.id}>
+                            <div className="flex items-start gap-2">
+                              <div className="relative flex-shrink-0">
+                                {sub.photo_url ? (
+                                  <img
+                                    src={sub.photo_url}
+                                    alt={`${pt.label} proof`}
+                                    className="w-16 h-16 object-cover rounded-lg border border-gray-200"
+                                  />
+                                ) : (
+                                  <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center text-xs text-gray-400">
+                                    📷
+                                  </div>
+                                )}
                               </div>
-                            )}
-                            {sub.status === "CORRECTION_REQUIRED" && (
-                              <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
-                                <span className="text-white text-[8px]">!</span>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-[11px] text-gray-400">
+                                  {new Date(sub.server_timestamp).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit", hour12: true })}
+                                </div>
+                                {sub.status === "CORRECTION_REQUIRED" && (
+                                  <div className="mt-1">
+                                    <div className="text-xs text-red-600 font-medium mb-1">⚠ Correction Required</div>
+                                    <input
+                                      type="file"
+                                      accept="image/*"
+                                      capture="environment"
+                                      onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file) handleCorrectionUpload(sub.id, file);
+                                        e.target.value = "";
+                                      }}
+                                      className="hidden"
+                                      id={`correction-${sub.id}`}
+                                    />
+                                    <label
+                                      htmlFor={`correction-${sub.id}`}
+                                      className={`inline-block px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer ${
+                                        uploading === sub.id
+                                          ? "bg-gray-200 text-gray-400"
+                                          : "bg-red-600 text-white"
+                                      }`}
+                                    >
+                                      {uploading === sub.id ? "Uploading…" : "📷 Upload Replacement"}
+                                    </label>
+                                  </div>
+                                )}
+                                {sub.status === "APPROVED" && (
+                                  <div className="text-[11px] text-green-600 font-medium">✓ Approved</div>
+                                )}
                               </div>
-                            )}
+                            </div>
                           </div>
                         ))}
                       </div>

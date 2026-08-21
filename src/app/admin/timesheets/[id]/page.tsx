@@ -105,6 +105,11 @@ export default function AdminTimesheetDetailPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  // Task proof state
+  const [proofSubs, setProofSubs] = useState<{ id: string; proof_type: string; photo_url: string | null; server_timestamp: string; status: string; employee_note: string | null }[]>([]);
+  const [proofReqs, setProofReqs] = useState<{ id: string; proof_type: string; is_required: boolean; minimum_photos: number }[]>([]);
+  const [showProofGallery, setShowProofGallery] = useState(false);
+
   // Correction modal state
   const [showCorrectionModal, setShowCorrectionModal] = useState(false);
   const [selectedFields, setSelectedFields] = useState<string[]>([]);
@@ -126,7 +131,19 @@ export default function AdminTimesheetDetailPage() {
       const tsData = await tsRes.json();
 
       if (tsData.error) setError(tsData.error);
-      else setTimesheet(tsData);
+      else {
+        setTimesheet(tsData);
+        // Fetch task proof data
+        if (tsData.shift_id) {
+          Promise.all([
+            fetch(`/api/task-proof/requirements?shiftId=${tsData.shift_id}`).then((r) => r.json()),
+            fetch(`/api/task-proof/submissions?shiftId=${tsData.shift_id}`).then((r) => r.json()),
+          ]).then(([reqs, subs]) => {
+            if (Array.isArray(reqs)) setProofReqs(reqs);
+            if (Array.isArray(subs)) setProofSubs(subs.filter((s: { status: string }) => s.status !== "REPLACED"));
+          }).catch(() => {});
+        }
+      }
 
       // Corrections endpoint may 500 if migration not run yet — handle gracefully
       try {
@@ -410,6 +427,112 @@ export default function AdminTimesheetDetailPage() {
                 </div>
               )}
             </div>
+
+            {/* Task Proof */}
+            {proofReqs.length > 0 && (
+              <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
+                <div className="flex items-center justify-between">
+                  <h2 className="font-semibold text-gray-900">📷 Task Proof</h2>
+                  {(() => {
+                    const requiredReqs = proofReqs.filter((r) => r.is_required);
+                    const completedReqs = requiredReqs.filter((r) => {
+                      const count = proofSubs.filter((s) => s.proof_type === r.proof_type).length;
+                      return count >= r.minimum_photos;
+                    });
+                    const allComplete = completedReqs.length >= requiredReqs.length;
+                    return allComplete ? (
+                      <span className="text-green-600 font-medium text-xs">✓ Submitted</span>
+                    ) : (
+                      <span className="text-amber-600 font-medium text-xs">⚠ Missing</span>
+                    );
+                  })()}
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Photos</span>
+                  <span className="font-medium">{proofSubs.length}</span>
+                </div>
+                {proofSubs.length > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Submitted</span>
+                    <span className="font-medium">
+                      {formatTime(proofSubs[proofSubs.length - 1].server_timestamp)}
+                    </span>
+                  </div>
+                )}
+                <button
+                  onClick={() => setShowProofGallery(!showProofGallery)}
+                  className="w-full bg-blue-50 text-blue-700 rounded-lg py-2 text-xs font-medium hover:bg-blue-100 transition-colors mt-1"
+                >
+                  {showProofGallery ? "Hide Proof" : proofSubs.length > 0 ? "👁 View Task Proof" : "📋 View Requirements"}
+                </button>
+
+                {showProofGallery && (
+                  <div className="mt-2 space-y-3">
+                    {proofReqs.map((req) => {
+                      const reqSubs = proofSubs.filter((s) => s.proof_type === req.proof_type);
+                      const labels: Record<string, string> = { BEFORE: "Before Work", DURING: "During Work", AFTER: "After Work", OTHER: "Other" };
+                      return (
+                        <div key={req.id} className="border-t border-gray-200 pt-2">
+                          <div className="text-xs font-semibold text-gray-700 mb-1">
+                            {labels[req.proof_type] || req.proof_type}
+                            {reqSubs.length === 0 && req.is_required && (
+                              <span className="ml-1 text-red-500">⚠ Missing</span>
+                            )}
+                          </div>
+                          {reqSubs.length > 0 ? (
+                            <div className="flex flex-wrap gap-2">
+                              {reqSubs.map((sub) => (
+                                <div key={sub.id} className="space-y-1">
+                                  {sub.photo_url ? (
+                                    <img
+                                      src={sub.photo_url}
+                                      alt={`${sub.proof_type} proof`}
+                                      className="w-20 h-20 object-cover rounded-lg border border-gray-200 cursor-pointer"
+                                      onClick={() => window.open(sub.photo_url!, "_blank")}
+                                    />
+                                  ) : (
+                                    <div className="w-20 h-20 bg-gray-200 rounded-lg flex items-center justify-center text-xs text-gray-400">📷</div>
+                                  )}
+                                  <div className="text-[10px] text-gray-400">
+                                    {new Date(sub.server_timestamp).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit", hour12: true })}
+                                  </div>
+                                  {sub.status === "CORRECTION_REQUIRED" ? (
+                                    <div className="text-[10px] text-red-500 font-medium">⚠ Correction sent</div>
+                                  ) : (
+                                    <button
+                                      onClick={async () => {
+                                        const reason = prompt("Why does this photo need correction?");
+                                        if (!reason) return;
+                                        const res = await fetch(`/api/task-proof/${sub.id}/correct`, {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ reason }),
+                                        });
+                                        if (res.ok) loadData();
+                                      }}
+                                      className="text-[10px] text-orange-600 hover:underline"
+                                    >
+                                      ⚠ Needs correction
+                                    </button>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-gray-400 italic">No photos submitted</div>
+                          )}
+                          {reqSubs.some((s) => s.employee_note) && (
+                            <div className="mt-1 text-xs text-gray-600 italic">
+                              &ldquo;{reqSubs.find((s) => s.employee_note)?.employee_note}&rdquo;
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Hours & Distance */}
             <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">

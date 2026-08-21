@@ -16,6 +16,21 @@ interface Shift {
   instructions: string | null;
   status: string;
   recurring_group_id: string | null;
+  event_id: string | null;
+}
+
+interface UpcomingEvent {
+  id: string;
+  name: string;
+  event_date: string;
+  start_time: string;
+  finish_time: string;
+  status: string;
+  event_staffing_requirements: {
+    required_count: number;
+    filled_count: number;
+    role: string;
+  }[];
 }
 
 interface Employee {
@@ -159,6 +174,8 @@ export default function RosterPage() {
   const [weekStart, setWeekStart] = useState<Date>(getMonday(new Date()));
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
+  const [eventNameMap, setEventNameMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   // View mode
@@ -242,9 +259,20 @@ export default function RosterPage() {
     Promise.all([
       fetch(`/api/shifts?startDate=${startDate}&endDate=${endDate}`).then((r) => r.json()),
       fetch("/api/employees").then((r) => r.json()),
-    ]).then(([shiftsData, employeesData]) => {
-      if (Array.isArray(shiftsData)) setShifts(shiftsData);
+      fetch("/api/events?upcoming=true").then((r) => r.json()),
+    ]).then(([shiftsData, employeesData, eventsData]) => {
+      if (Array.isArray(shiftsData)) {
+        setShifts(shiftsData);
+        // Build event name map from event-linked shifts
+        const eventIds = [...new Set(shiftsData.filter((s: Shift) => s.event_id).map((s: Shift) => s.event_id))];
+        if (eventIds.length > 0 && Array.isArray(eventsData)) {
+          const nameMap: Record<string, string> = {};
+          eventsData.forEach((e: UpcomingEvent) => { nameMap[e.id] = e.name; });
+          setEventNameMap(nameMap);
+        }
+      }
       if (Array.isArray(employeesData)) setEmployees(employeesData);
+      if (Array.isArray(eventsData)) setUpcomingEvents(eventsData);
       setLoading(false);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -797,6 +825,51 @@ export default function RosterPage() {
         </div>
       </div>
 
+      {/* ── Upcoming Events ── */}
+      {upcomingEvents.length > 0 && (
+        <div className="bg-white rounded-lg border border-gray-200 px-4 py-3 mb-4">
+          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Upcoming Events</div>
+          <div className="space-y-2">
+            {upcomingEvents.slice(0, 3).map((evt) => {
+              const req = evt.event_staffing_requirements?.[0];
+              const filled = req?.filled_count || 0;
+              const required = req?.required_count || 0;
+              const isFull = filled >= required;
+              return (
+                <Link
+                  key={evt.id}
+                  href={`/admin/events/${evt.id}`}
+                  className="block p-2.5 rounded-lg border border-gray-100 hover:border-blue-200 hover:bg-blue-50 transition-colors"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-gray-900">⚽ {evt.name}</div>
+                      <div className="text-xs text-gray-500">
+                        {new Date(evt.event_date + "T00:00:00").toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" })}
+                        {" · "}
+                        {formatTime(evt.start_time)} – {formatTime(evt.finish_time)}
+                      </div>
+                    </div>
+                    <div className="ml-2 text-right flex-shrink-0">
+                      {isFull ? (
+                        <span className="text-xs font-medium text-green-600">✓ {filled}/{required}</span>
+                      ) : (
+                        <span className="text-xs font-medium text-amber-600">⚠ {filled}/{required}</span>
+                      )}
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+            {upcomingEvents.length > 3 && (
+              <Link href="/admin/events" className="block text-center text-xs text-blue-600 hover:underline py-1">
+                View all {upcomingEvents.length} events →
+              </Link>
+            )}
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <div className="text-center py-12 text-gray-500">Loading roster…</div>
       ) : totalShifts === 0 && employees.length > 0 ? (
@@ -919,9 +992,17 @@ export default function RosterPage() {
                                 <button
                                   key={s.id}
                                   onClick={() => openShift(s)}
-                                  className="mb-1 w-full text-left p-1.5 rounded-lg border border-transparent
-                                             hover:border-blue-300 hover:bg-blue-50 transition-colors cursor-pointer"
+                                  className={`mb-1 w-full text-left p-1.5 rounded-lg border transition-colors cursor-pointer ${
+                                    s.event_id
+                                      ? "border-purple-200 bg-purple-50 hover:border-purple-400"
+                                      : "border-transparent hover:border-blue-300 hover:bg-blue-50"
+                                  }`}
                                 >
+                                  {s.event_id && eventNameMap[s.event_id] && (
+                                    <div className="text-[10px] font-medium text-purple-600 truncate mb-0.5">
+                                      ⚽ {eventNameMap[s.event_id]}
+                                    </div>
+                                  )}
                                   <div className="text-xs font-medium">
                                     {formatTime(s.scheduled_start)}–{formatTime(s.scheduled_finish)}
                                   </div>
@@ -1006,9 +1087,18 @@ export default function RosterPage() {
                           <button
                             key={s.id}
                             onClick={() => openShift(s)}
-                            className="w-full text-left p-3 rounded-lg hover:bg-gray-50 active:bg-gray-100
-                                       transition-colors border border-transparent hover:border-gray-200"
+                            className={`w-full text-left p-3 rounded-lg active:bg-gray-100
+                                       transition-colors border ${
+                                         s.event_id
+                                           ? "border-purple-200 bg-purple-50 hover:bg-purple-100"
+                                           : "border-transparent hover:bg-gray-50 hover:border-gray-200"
+                                       }`}
                           >
+                            {s.event_id && eventNameMap[s.event_id] && (
+                              <div className="text-[11px] font-medium text-purple-600 mb-0.5">
+                                ⚽ {eventNameMap[s.event_id]}
+                              </div>
+                            )}
                             <div className="flex items-start justify-between">
                               <div className="flex-1 min-w-0">
                                 <div className="font-medium text-gray-900 text-sm">{emp?.full_name}</div>
@@ -1102,6 +1192,14 @@ export default function RosterPage() {
                         <span className="text-gray-500">Status:</span>
                         <StatusBadge status={selectedShift.status} />
                       </div>
+                      {selectedShift.event_id && eventNameMap[selectedShift.event_id] && (
+                        <Link
+                          href={`/admin/events/${selectedShift.event_id}`}
+                          className="block text-xs text-purple-600 bg-purple-50 rounded-lg p-2 hover:bg-purple-100 transition-colors"
+                        >
+                          ⚽ Event: {eventNameMap[selectedShift.event_id]} →
+                        </Link>
+                      )}
                       {selectedShift.recurring_group_id && (
                         <div className="text-xs text-purple-600 bg-purple-50 rounded-lg p-2">
                           🔁 Part of a recurring series

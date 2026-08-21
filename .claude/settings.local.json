@@ -32,7 +32,8 @@
       "Bash(where npx *)",
       "Bash(git commit -m 'Phase 1: Tenant foundation - businesses table, business_members, tenant context helper *)",
       "PowerShell(npx tsc --noEmit 2>&1)",
-      "PowerShell(npm run build 2>&1)"
+      "PowerShell(npm run build 2>&1)",
+      "Bash(git commit -m 'Event Staffing Phase 1: tables, event creation, employee type fields *)"
     ]
   }
 }

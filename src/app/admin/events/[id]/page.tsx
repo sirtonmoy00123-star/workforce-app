@@ -223,7 +223,7 @@ export default function EventDetailPage() {
         {isActive && remaining > 0 && (
           <div className="space-y-2">
             <Link
-              href={`/admin/events/${event.id}`}
+              href={`/admin/events/${event.id}/find-workers`}
               className="block w-full bg-blue-600 text-white rounded-xl py-3 text-sm font-semibold
                          hover:bg-blue-700 transition-colors text-center"
             >

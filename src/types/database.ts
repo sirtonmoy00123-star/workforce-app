@@ -669,7 +669,23 @@ export type Database = {
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      accept_open_shift_offer: {
+        Args: {
+          p_offer_id: string;
+          p_recipient_id: string;
+          p_employee_id: string;
+          p_business_id: string;
+        };
+        Returns: {
+          success: boolean;
+          error?: string;
+          positions_filled?: number;
+          positions_required?: number;
+          offer_now_filled?: boolean;
+        };
+      };
+    };
     Enums: {
       user_role: "admin" | "employee";
       account_status: "active" | "disabled";

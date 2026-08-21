@@ -20,6 +20,22 @@ interface EventShift {
   status: string;
 }
 
+interface OfferRecipient {
+  id: string;
+  employee_id: string;
+  status: string;
+  responded_at: string | null;
+}
+
+interface OpenOffer {
+  id: string;
+  positions_required: number;
+  positions_filled: number;
+  status: string;
+  created_at: string;
+  recipients: OfferRecipient[];
+}
+
 interface StaffingEvent {
   id: string;
   name: string;
@@ -31,6 +47,7 @@ interface StaffingEvent {
   status: string;
   event_staffing_requirements: StaffingRequirement[];
   eventShifts: EventShift[];
+  offers: OpenOffer[];
   employeeMap: Record<string, string>;
 }
 
@@ -232,6 +249,63 @@ export default function EventDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Open Offers */}
+      {event.offers && event.offers.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-4">
+          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
+            Open Offers
+          </h2>
+          {event.offers.map((offer) => {
+            const accepted = offer.recipients?.filter((r) => r.status === "ACCEPTED").length || 0;
+            const declined = offer.recipients?.filter((r) => r.status === "DECLINED").length || 0;
+            const pending = offer.recipients?.filter((r) => r.status === "PENDING").length || 0;
+            const total = offer.recipients?.length || 0;
+
+            return (
+              <div key={offer.id} className="bg-gray-50 rounded-xl p-3 mb-2">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-medium text-gray-500">
+                    Sent to {total} worker{total !== 1 ? "s" : ""}
+                  </span>
+                  <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                    offer.status === "FILLED"
+                      ? "bg-green-100 text-green-700"
+                      : offer.status === "OPEN" || offer.status === "PARTIALLY_FILLED"
+                        ? "bg-blue-100 text-blue-700"
+                        : "bg-gray-100 text-gray-500"
+                  }`}>
+                    {offer.status.replace(/_/g, " ")}
+                  </span>
+                </div>
+                <div className="flex gap-3 text-xs">
+                  {accepted > 0 && (
+                    <span className="text-green-600">✓ {accepted} accepted</span>
+                  )}
+                  {pending > 0 && (
+                    <span className="text-amber-600">⏳ {pending} pending</span>
+                  )}
+                  {declined > 0 && (
+                    <span className="text-gray-400">✗ {declined} declined</span>
+                  )}
+                </div>
+                {/* Show accepted worker names */}
+                {accepted > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {offer.recipients
+                      ?.filter((r) => r.status === "ACCEPTED")
+                      .map((r) => (
+                        <div key={r.id} className="text-xs text-green-700">
+                          ✓ {event.employeeMap[r.employee_id] || "Unknown"}
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Action Buttons */}
       {isActive && (

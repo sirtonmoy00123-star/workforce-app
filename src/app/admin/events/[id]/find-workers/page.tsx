@@ -80,6 +80,8 @@ export default function FindWorkersPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [assigning, setAssigning] = useState(false);
+  const [sendingOffer, setSendingOffer] = useState(false);
+  const [mode, setMode] = useState<"assign" | "offer">("assign");
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
   const [error, setError] = useState("");
 
@@ -142,6 +144,35 @@ export default function FindWorkersPage() {
       setError("Network error.");
     }
     setAssigning(false);
+  }
+
+  async function handleSendOffer() {
+    if (selected.size === 0) return;
+    setSendingOffer(true);
+    setError("");
+
+    try {
+      const res = await fetch(`/api/events/${id}/send-offer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employeeIds: Array.from(selected) }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || "Failed to send offer.");
+        setSendingOffer(false);
+        return;
+      }
+
+      setResult({
+        success: true,
+        message: `Open offer sent to ${data.sent_to} worker${data.sent_to !== 1 ? "s" : ""}! (${data.positions_required} position${data.positions_required !== 1 ? "s" : ""} available)`,
+      });
+    } catch {
+      setError("Network error.");
+    }
+    setSendingOffer(false);
   }
 
   if (loading) {
@@ -246,7 +277,7 @@ export default function FindWorkersPage() {
               worker={w}
               isSelected={selected.has(w.id)}
               onToggle={() => toggleWorker(w.id)}
-              disabled={!selected.has(w.id) && selectableCount >= remaining}
+              disabled={mode === "assign" && !selected.has(w.id) && selectableCount >= remaining}
             />
           ))}
         </div>
@@ -264,7 +295,7 @@ export default function FindWorkersPage() {
               worker={w}
               isSelected={selected.has(w.id)}
               onToggle={() => toggleWorker(w.id)}
-              disabled={!selected.has(w.id) && selectableCount >= remaining}
+              disabled={mode === "assign" && !selected.has(w.id) && selectableCount >= remaining}
             />
           ))}
         </div>
@@ -296,13 +327,38 @@ export default function FindWorkersPage() {
         </div>
       )}
 
-      {/* Sticky assign bar */}
+      {/* Sticky action bar */}
       {remaining > 0 && (
         <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 safe-bottom z-50">
           <div className="max-w-lg mx-auto">
+            {/* Mode toggle */}
+            <div className="flex rounded-lg border border-gray-200 mb-3 overflow-hidden">
+              <button
+                onClick={() => setMode("assign")}
+                className={`flex-1 py-2 text-xs font-medium transition-colors ${
+                  mode === "assign"
+                    ? "bg-blue-600 text-white"
+                    : "bg-white text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                Assign Directly
+              </button>
+              <button
+                onClick={() => setMode("offer")}
+                className={`flex-1 py-2 text-xs font-medium transition-colors ${
+                  mode === "offer"
+                    ? "bg-purple-600 text-white"
+                    : "bg-white text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                Send Open Offer
+              </button>
+            </div>
+
             <div className="flex items-center justify-between mb-2 text-sm">
               <span className="text-gray-500">
-                {selectableCount} / {remaining} selected
+                {selectableCount} selected
+                {mode === "assign" && ` / ${remaining} positions`}
               </span>
               {selectableCount > 0 && (
                 <button onClick={() => setSelected(new Set())} className="text-blue-600 text-xs">
@@ -310,19 +366,42 @@ export default function FindWorkersPage() {
                 </button>
               )}
             </div>
-            <button
-              onClick={handleAssign}
-              disabled={selectableCount === 0 || assigning}
-              className="w-full bg-blue-600 text-white rounded-xl py-3.5 text-sm font-semibold
-                         hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              {assigning
-                ? "Assigning…"
-                : selectableCount > 0
-                  ? `Assign ${selectableCount} Worker${selectableCount !== 1 ? "s" : ""}`
-                  : "Select Workers to Assign"
-              }
-            </button>
+
+            {mode === "assign" ? (
+              <button
+                onClick={handleAssign}
+                disabled={selectableCount === 0 || assigning}
+                className="w-full bg-blue-600 text-white rounded-xl py-3.5 text-sm font-semibold
+                           hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {assigning
+                  ? "Assigning…"
+                  : selectableCount > 0
+                    ? `Assign ${selectableCount} Worker${selectableCount !== 1 ? "s" : ""}`
+                    : "Select Workers to Assign"
+                }
+              </button>
+            ) : (
+              <button
+                onClick={handleSendOffer}
+                disabled={selectableCount === 0 || sendingOffer}
+                className="w-full bg-purple-600 text-white rounded-xl py-3.5 text-sm font-semibold
+                           hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {sendingOffer
+                  ? "Sending…"
+                  : selectableCount > 0
+                    ? `Send Offer to ${selectableCount} Worker${selectableCount !== 1 ? "s" : ""}`
+                    : "Select Workers to Send Offer"
+                }
+              </button>
+            )}
+
+            {mode === "offer" && (
+              <p className="text-[11px] text-gray-400 mt-1.5 text-center">
+                Workers can accept or decline. First {remaining} to accept get the shift.
+              </p>
+            )}
           </div>
         </div>
       )}

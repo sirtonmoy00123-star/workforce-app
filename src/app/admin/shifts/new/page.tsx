@@ -32,6 +32,31 @@ interface RecurringPreview {
 
 type Step = "details" | "review" | "confirm";
 
+type ProofType = "BEFORE" | "DURING" | "AFTER" | "OTHER";
+
+interface ProofRequirement {
+  proof_type: ProofType;
+  instruction: string;
+  minimum_photos: number;
+  maximum_photos: number;
+  is_required: boolean;
+  allow_employee_note: boolean;
+  allow_finish_without_proof: boolean;
+}
+
+interface Template {
+  id: string;
+  name: string;
+  task_proof_template_items: ProofRequirement[];
+}
+
+const PROOF_TYPES: { value: ProofType; label: string; emoji: string }[] = [
+  { value: "BEFORE", label: "Before Work", emoji: "📷" },
+  { value: "DURING", label: "During Work", emoji: "🔄" },
+  { value: "AFTER", label: "After Work", emoji: "✅" },
+  { value: "OTHER", label: "Other", emoji: "📎" },
+];
+
 // ─── Helpers ─────────────────────────────────────────────────
 
 function formatDateDisplay(dateStr: string): string {
@@ -72,13 +97,25 @@ export default function NewShiftPage() {
   const [customEndDate, setCustomEndDate] = useState("");
   const [keepSameEmployees, setKeepSameEmployees] = useState(true);
 
+  // Task Proof state
+  const [taskProofEnabled, setTaskProofEnabled] = useState(false);
+  const [proofRequirements, setProofRequirements] = useState<ProofRequirement[]>([
+    { proof_type: "BEFORE", instruction: "", minimum_photos: 1, maximum_photos: 6, is_required: true, allow_employee_note: true, allow_finish_without_proof: true },
+    { proof_type: "AFTER", instruction: "", minimum_photos: 1, maximum_photos: 6, is_required: true, allow_employee_note: true, allow_finish_without_proof: true },
+  ]);
+  const [selectedProofTypes, setSelectedProofTypes] = useState<Set<ProofType>>(new Set(["BEFORE", "AFTER"]));
+  const [proofTemplates, setProofTemplates] = useState<Template[]>([]);
+  const [proofInstruction, setProofInstruction] = useState("");
+  const [showSaveTemplate, setShowSaveTemplate] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+
   // Multi-step state
   const [step, setStep] = useState<Step>("details");
   const [preview, setPreview] = useState<RecurringPreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Fetch employees on mount
+  // Fetch employees and templates on mount
   useEffect(() => {
     fetch("/api/employees")
       .then((res) => res.json())
@@ -87,10 +124,83 @@ export default function NewShiftPage() {
           setEmployees(data.filter((e: Employee) => e.employment_status === "active"));
         }
       });
+    fetch("/api/task-proof/templates")
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) setProofTemplates(data);
+      })
+      .catch(() => {});
   }, []);
 
   function updateField(field: string, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function toggleProofType(type: ProofType) {
+    setSelectedProofTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) {
+        next.delete(type);
+        setProofRequirements((reqs) => reqs.filter((r) => r.proof_type !== type));
+      } else {
+        next.add(type);
+        setProofRequirements((reqs) => [
+          ...reqs,
+          { proof_type: type, instruction: "", minimum_photos: 1, maximum_photos: 6, is_required: true, allow_employee_note: true, allow_finish_without_proof: true },
+        ]);
+      }
+      return next;
+    });
+  }
+
+  function applyTemplate(template: Template) {
+    const items = template.task_proof_template_items || [];
+    const types = new Set<ProofType>();
+    const reqs: ProofRequirement[] = items.map((item) => {
+      types.add(item.proof_type as ProofType);
+      return {
+        proof_type: item.proof_type as ProofType,
+        instruction: item.instruction || "",
+        minimum_photos: item.minimum_photos || 1,
+        maximum_photos: item.maximum_photos || 6,
+        is_required: item.is_required !== false,
+        allow_employee_note: item.allow_employee_note !== false,
+        allow_finish_without_proof: item.allow_finish_without_proof !== false,
+      };
+    });
+    setSelectedProofTypes(types);
+    setProofRequirements(reqs);
+  }
+
+  function updateProofReq(type: ProofType, field: string, value: unknown) {
+    setProofRequirements((prev) =>
+      prev.map((r) => (r.proof_type === type ? { ...r, [field]: value } : r))
+    );
+  }
+
+  async function saveAsTemplate() {
+    if (!templateName.trim()) return;
+    try {
+      const activeReqs = proofRequirements.filter((r) => selectedProofTypes.has(r.proof_type));
+      const res = await fetch("/api/task-proof/templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: templateName.trim(),
+          items: activeReqs,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        // Refresh templates
+        const tplRes = await fetch("/api/task-proof/templates");
+        const tpls = await tplRes.json();
+        if (Array.isArray(tpls)) setProofTemplates(tpls);
+        setShowSaveTemplate(false);
+        setTemplateName("");
+        return data;
+      }
+    } catch { /* ignore */ }
   }
 
   function toggleEmployee(id: string) {
@@ -221,6 +331,24 @@ export default function NewShiftPage() {
           setError(data.error || "Failed to create shift.");
           setLoading(false);
           return;
+        }
+
+        // Save task proof requirements if enabled
+        if (taskProofEnabled && data.shift?.id) {
+          const activeReqs = proofRequirements.filter((r) => selectedProofTypes.has(r.proof_type));
+          if (activeReqs.length > 0) {
+            await fetch("/api/task-proof/requirements", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                shiftId: data.shift.id,
+                requirements: activeReqs.map((r) => ({
+                  ...r,
+                  instruction: r.instruction || proofInstruction || null,
+                })),
+              }),
+            });
+          }
         }
 
         router.push("/admin/roster");
@@ -408,6 +536,177 @@ export default function NewShiftPage() {
                            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
+          </div>
+
+          {/* Task Proof card */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-gray-900">📷 Task Proof</h2>
+              <button
+                type="button"
+                onClick={() => setTaskProofEnabled(!taskProofEnabled)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  taskProofEnabled ? "bg-blue-600" : "bg-gray-300"
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    taskProofEnabled ? "translate-x-6" : "translate-x-1"
+                  }`}
+                />
+              </button>
+            </div>
+
+            {taskProofEnabled && (
+              <div className="space-y-4">
+                {/* Template selector */}
+                {proofTemplates.length > 0 && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Template
+                    </label>
+                    <select
+                      onChange={(e) => {
+                        const tpl = proofTemplates.find((t) => t.id === e.target.value);
+                        if (tpl) applyTemplate(tpl);
+                      }}
+                      defaultValue=""
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm
+                                 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">Custom configuration</option>
+                      {proofTemplates.map((tpl) => (
+                        <option key={tpl.id} value={tpl.id}>{tpl.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Proof type checkboxes */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Proof Required
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {PROOF_TYPES.map((pt) => (
+                      <label
+                        key={pt.value}
+                        className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition-colors text-sm
+                          ${selectedProofTypes.has(pt.value)
+                            ? "border-blue-500 bg-blue-50"
+                            : "border-gray-200 hover:border-gray-300"
+                          }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedProofTypes.has(pt.value)}
+                          onChange={() => toggleProofType(pt.value)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span>{pt.emoji} {pt.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Per-type configuration */}
+                {proofRequirements
+                  .filter((r) => selectedProofTypes.has(r.proof_type))
+                  .map((req) => {
+                    const pt = PROOF_TYPES.find((p) => p.value === req.proof_type);
+                    return (
+                      <div key={req.proof_type} className="bg-gray-50 rounded-lg p-3 space-y-2">
+                        <div className="text-sm font-medium text-gray-800">
+                          {pt?.emoji} {pt?.label}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[11px] text-gray-500 mb-0.5">Min Photos</label>
+                            <input
+                              type="number"
+                              min="1"
+                              max="10"
+                              value={req.minimum_photos}
+                              onChange={(e) => updateProofReq(req.proof_type, "minimum_photos", parseInt(e.target.value) || 1)}
+                              className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] text-gray-500 mb-0.5">Max Photos</label>
+                            <input
+                              type="number"
+                              min="1"
+                              max="20"
+                              value={req.maximum_photos}
+                              onChange={(e) => updateProofReq(req.proof_type, "maximum_photos", parseInt(e.target.value) || 6)}
+                              className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                            />
+                          </div>
+                        </div>
+                        <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={req.allow_finish_without_proof}
+                            onChange={(e) => updateProofReq(req.proof_type, "allow_finish_without_proof", e.target.checked)}
+                            className="rounded border-gray-300 text-blue-600"
+                          />
+                          Allow finish without this proof (flag for admin)
+                        </label>
+                      </div>
+                    );
+                  })}
+
+                {/* Global proof instructions */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Proof Instructions
+                  </label>
+                  <textarea
+                    value={proofInstruction}
+                    onChange={(e) => setProofInstruction(e.target.value)}
+                    rows={2}
+                    placeholder="Take clear photos of the area before and after completing the work."
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm
+                               focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                {/* Save as template */}
+                {!showSaveTemplate ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowSaveTemplate(true)}
+                    className="text-xs text-blue-600 hover:underline"
+                  >
+                    💾 Save as Template
+                  </button>
+                ) : (
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={templateName}
+                      onChange={(e) => setTemplateName(e.target.value)}
+                      placeholder="Template name"
+                      className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={saveAsTemplate}
+                      className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium"
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setShowSaveTemplate(false); setTemplateName(""); }}
+                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Employee selection card */}
@@ -735,6 +1034,31 @@ export default function NewShiftPage() {
                 </div>
               ))}
             </div>
+
+            {/* Task Proof summary */}
+            {taskProofEnabled && (
+              <div className="mb-6">
+                <h3 className="text-sm font-medium text-gray-700 mb-2">📷 Task Proof:</h3>
+                <div className="flex flex-wrap gap-2">
+                  {proofRequirements
+                    .filter((r) => selectedProofTypes.has(r.proof_type))
+                    .map((r) => {
+                      const pt = PROOF_TYPES.find((p) => p.value === r.proof_type);
+                      return (
+                        <span
+                          key={r.proof_type}
+                          className="bg-purple-100 text-purple-800 text-xs font-medium px-2.5 py-1 rounded-full"
+                        >
+                          {pt?.emoji} {pt?.label} ({r.minimum_photos}–{r.maximum_photos} photos)
+                        </span>
+                      );
+                    })}
+                </div>
+                {proofInstruction && (
+                  <p className="text-xs text-gray-500 mt-1 italic">&ldquo;{proofInstruction}&rdquo;</p>
+                )}
+              </div>
+            )}
 
             {/* Employees */}
             <div className="mb-6">

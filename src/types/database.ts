@@ -667,6 +667,186 @@ export type Database = {
         };
         Relationships: [];
       };
+      task_proof_templates: {
+        Row: {
+          id: string;
+          business_id: string;
+          name: string;
+          description: string | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          business_id: string;
+          name: string;
+          description?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          business_id?: string;
+          name?: string;
+          description?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      task_proof_template_items: {
+        Row: {
+          id: string;
+          template_id: string;
+          proof_type: "BEFORE" | "DURING" | "AFTER" | "OTHER";
+          instruction: string | null;
+          minimum_photos: number;
+          maximum_photos: number;
+          is_required: boolean;
+          allow_employee_note: boolean;
+          allow_finish_without_proof: boolean;
+          sort_order: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          template_id: string;
+          proof_type: "BEFORE" | "DURING" | "AFTER" | "OTHER";
+          instruction?: string | null;
+          minimum_photos?: number;
+          maximum_photos?: number;
+          is_required?: boolean;
+          allow_employee_note?: boolean;
+          allow_finish_without_proof?: boolean;
+          sort_order?: number;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          template_id?: string;
+          proof_type?: "BEFORE" | "DURING" | "AFTER" | "OTHER";
+          instruction?: string | null;
+          minimum_photos?: number;
+          maximum_photos?: number;
+          is_required?: boolean;
+          allow_employee_note?: boolean;
+          allow_finish_without_proof?: boolean;
+          sort_order?: number;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      task_proof_requirements: {
+        Row: {
+          id: string;
+          business_id: string;
+          shift_id: string;
+          proof_type: "BEFORE" | "DURING" | "AFTER" | "OTHER";
+          instruction: string | null;
+          minimum_photos: number;
+          maximum_photos: number;
+          is_required: boolean;
+          allow_employee_note: boolean;
+          allow_finish_without_proof: boolean;
+          sort_order: number;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          business_id: string;
+          shift_id: string;
+          proof_type: "BEFORE" | "DURING" | "AFTER" | "OTHER";
+          instruction?: string | null;
+          minimum_photos?: number;
+          maximum_photos?: number;
+          is_required?: boolean;
+          allow_employee_note?: boolean;
+          allow_finish_without_proof?: boolean;
+          sort_order?: number;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          business_id?: string;
+          shift_id?: string;
+          proof_type?: "BEFORE" | "DURING" | "AFTER" | "OTHER";
+          instruction?: string | null;
+          minimum_photos?: number;
+          maximum_photos?: number;
+          is_required?: boolean;
+          allow_employee_note?: boolean;
+          allow_finish_without_proof?: boolean;
+          sort_order?: number;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      task_proof_submissions: {
+        Row: {
+          id: string;
+          business_id: string;
+          shift_id: string;
+          employee_id: string;
+          requirement_id: string;
+          proof_type: "BEFORE" | "DURING" | "AFTER" | "OTHER";
+          photo_path: string;
+          employee_note: string | null;
+          server_timestamp: string;
+          status: "SUBMITTED" | "REPLACED" | "NEEDS_REVIEW" | "CORRECTION_REQUIRED" | "APPROVED";
+          correction_reason: string | null;
+          correction_requested_by: string | null;
+          correction_requested_at: string | null;
+          replaces_submission_id: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          business_id: string;
+          shift_id: string;
+          employee_id: string;
+          requirement_id: string;
+          proof_type: "BEFORE" | "DURING" | "AFTER" | "OTHER";
+          photo_path: string;
+          employee_note?: string | null;
+          server_timestamp?: string;
+          status?: "SUBMITTED" | "REPLACED" | "NEEDS_REVIEW" | "CORRECTION_REQUIRED" | "APPROVED";
+          correction_reason?: string | null;
+          correction_requested_by?: string | null;
+          correction_requested_at?: string | null;
+          replaces_submission_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          business_id?: string;
+          shift_id?: string;
+          employee_id?: string;
+          requirement_id?: string;
+          proof_type?: "BEFORE" | "DURING" | "AFTER" | "OTHER";
+          photo_path?: string;
+          employee_note?: string | null;
+          server_timestamp?: string;
+          status?: "SUBMITTED" | "REPLACED" | "NEEDS_REVIEW" | "CORRECTION_REQUIRED" | "APPROVED";
+          correction_reason?: string | null;
+          correction_requested_by?: string | null;
+          correction_requested_at?: string | null;
+          replaces_submission_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -700,6 +880,8 @@ export type Database = {
       open_offer_status: "OPEN" | "PARTIALLY_FILLED" | "FILLED" | "CLOSED" | "CANCELLED";
       offer_recipient_status: "PENDING" | "ACCEPTED" | "DECLINED" | "EXPIRED" | "CLOSED";
       employment_type: "PERMANENT" | "PART_TIME" | "CASUAL";
+      proof_type: "BEFORE" | "DURING" | "AFTER" | "OTHER";
+      proof_submission_status: "SUBMITTED" | "REPLACED" | "NEEDS_REVIEW" | "CORRECTION_REQUIRED" | "APPROVED";
     };
   };
 };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import StatusBadge from "@/components/StatusBadge";
 
@@ -22,6 +22,34 @@ interface Shift {
     actual_finish: string | null;
   } | null;
 }
+
+interface ProofRequirement {
+  id: string;
+  proof_type: string;
+  instruction: string | null;
+  minimum_photos: number;
+  maximum_photos: number;
+  is_required: boolean;
+  allow_employee_note: boolean;
+  allow_finish_without_proof: boolean;
+}
+
+interface ProofSubmission {
+  id: string;
+  requirement_id: string;
+  proof_type: string;
+  photo_url: string | null;
+  employee_note: string | null;
+  server_timestamp: string;
+  status: string;
+}
+
+const PROOF_TYPE_LABELS: Record<string, { label: string; emoji: string }> = {
+  BEFORE: { label: "Before Work", emoji: "📷" },
+  DURING: { label: "During Work", emoji: "🔄" },
+  AFTER: { label: "After Work", emoji: "✅" },
+  OTHER: { label: "Other", emoji: "📎" },
+};
 
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString("en-AU", {
@@ -52,6 +80,26 @@ export default function ShiftDetailPage() {
   const [error, setError] = useState("");
   const [justStarted, setJustStarted] = useState(false);
 
+  // Task Proof state
+  const [proofRequirements, setProofRequirements] = useState<ProofRequirement[]>([]);
+  const [proofSubmissions, setProofSubmissions] = useState<ProofSubmission[]>([]);
+  const [uploading, setUploading] = useState<string | null>(null); // requirement_id being uploaded
+  const [uploadError, setUploadError] = useState("");
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  async function loadProofData(shiftId: string) {
+    try {
+      const [reqRes, subRes] = await Promise.all([
+        fetch(`/api/task-proof/requirements?shiftId=${shiftId}`),
+        fetch(`/api/task-proof/submissions?shiftId=${shiftId}`),
+      ]);
+      const reqs = await reqRes.json();
+      const subs = await subRes.json();
+      if (Array.isArray(reqs)) setProofRequirements(reqs);
+      if (Array.isArray(subs)) setProofSubmissions(subs);
+    } catch { /* ignore */ }
+  }
+
   useEffect(() => {
     // Check if we just came from starting the shift
     const urlParams = new URLSearchParams(window.location.search);
@@ -63,7 +111,10 @@ export default function ShiftDetailPage() {
       .then((res) => res.json())
       .then((data) => {
         if (data.error) setError(data.error);
-        else setShift(data);
+        else {
+          setShift(data);
+          loadProofData(id);
+        }
         setLoading(false);
       })
       .catch(() => {
@@ -91,6 +142,40 @@ export default function ShiftDetailPage() {
       setError("Something went wrong.");
     }
     setActing(false);
+  }
+
+  async function handlePhotoUpload(requirementId: string, proofType: string, file: File) {
+    setUploading(requirementId);
+    setUploadError("");
+    try {
+      const formData = new FormData();
+      formData.append("photo", file);
+      formData.append("shiftId", id);
+      formData.append("requirementId", requirementId);
+      formData.append("proofType", proofType);
+
+      const res = await fetch("/api/task-proof/submit", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setUploadError(data.error || "Upload failed.");
+      } else {
+        // Refresh submissions
+        await loadProofData(id);
+      }
+    } catch {
+      setUploadError("Upload failed. Please try again.");
+    }
+    setUploading(null);
+  }
+
+  function getSubmissionsForReq(reqId: string): ProofSubmission[] {
+    return proofSubmissions.filter(
+      (s) => s.requirement_id === reqId && s.status !== "REPLACED"
+    );
   }
 
   const isWorking = shift?.attendance?.attendance_status === "working";
@@ -161,6 +246,155 @@ export default function ShiftDetailPage() {
             </div>
           )}
         </div>
+
+        {/* Task Proof Section */}
+        {proofRequirements.length > 0 && (
+          <div className="mt-6 border-t border-gray-200 pt-5">
+            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
+              📷 Task Proof {proofRequirements.some((r) => r.is_required) ? "Required" : ""}
+            </h2>
+
+            {uploadError && (
+              <div className="bg-red-50 text-red-700 text-sm rounded-lg p-3 border border-red-200 mb-3">
+                {uploadError}
+              </div>
+            )}
+
+            {/* Progress */}
+            {(() => {
+              const requiredReqs = proofRequirements.filter((r) => r.is_required);
+              const completedRequired = requiredReqs.filter((r) => {
+                const subs = getSubmissionsForReq(r.id);
+                return subs.length >= r.minimum_photos;
+              });
+              const total = requiredReqs.length;
+              const done = completedRequired.length;
+              return total > 0 ? (
+                <div className="mb-4">
+                  <div className="flex items-center justify-between text-sm mb-1">
+                    <span className="text-gray-600">
+                      {done} of {total} required proof{total !== 1 ? "s" : ""} completed
+                    </span>
+                    {done >= total ? (
+                      <span className="text-green-600 font-medium">✓ Complete</span>
+                    ) : (
+                      <span className="text-amber-600 font-medium">○ Incomplete</span>
+                    )}
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-1.5">
+                    <div
+                      className={`h-1.5 rounded-full transition-all ${
+                        done >= total ? "bg-green-500" : "bg-amber-500"
+                      }`}
+                      style={{ width: `${total > 0 ? (done / total) * 100 : 0}%` }}
+                    />
+                  </div>
+                </div>
+              ) : null;
+            })()}
+
+            {/* Per-requirement cards */}
+            <div className="space-y-3">
+              {proofRequirements.map((req) => {
+                const pt = PROOF_TYPE_LABELS[req.proof_type] || { label: req.proof_type, emoji: "📎" };
+                const subs = getSubmissionsForReq(req.id);
+                const isComplete = subs.length >= req.minimum_photos;
+                const canUpload = subs.length < req.maximum_photos;
+                const isUploading = uploading === req.id;
+
+                return (
+                  <div
+                    key={req.id}
+                    className={`rounded-xl border p-4 ${
+                      isComplete
+                        ? "border-green-200 bg-green-50"
+                        : req.is_required
+                        ? "border-amber-200 bg-amber-50"
+                        : "border-gray-200 bg-gray-50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-gray-900">
+                        {pt.emoji} {pt.label}
+                      </span>
+                      {isComplete ? (
+                        <span className="text-xs font-medium text-green-600">✓ Complete</span>
+                      ) : req.is_required ? (
+                        <span className="text-xs font-medium text-amber-600">○ Required</span>
+                      ) : (
+                        <span className="text-xs font-medium text-gray-400">Optional</span>
+                      )}
+                    </div>
+
+                    {req.instruction && (
+                      <p className="text-xs text-gray-500 mb-2">{req.instruction}</p>
+                    )}
+
+                    {/* Uploaded photos */}
+                    {subs.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        {subs.map((sub) => (
+                          <div key={sub.id} className="relative">
+                            {sub.photo_url ? (
+                              <img
+                                src={sub.photo_url}
+                                alt={`${pt.label} proof`}
+                                className="w-16 h-16 object-cover rounded-lg border border-gray-200"
+                              />
+                            ) : (
+                              <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center text-xs text-gray-400">
+                                📷
+                              </div>
+                            )}
+                            {sub.status === "CORRECTION_REQUIRED" && (
+                              <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
+                                <span className="text-white text-[8px]">!</span>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="text-[11px] text-gray-400 mb-2">
+                      {subs.length} of {req.minimum_photos}–{req.maximum_photos} photos
+                    </div>
+
+                    {/* Upload button */}
+                    {canUpload && (
+                      <div>
+                        <input
+                          ref={(el) => { fileInputRefs.current[req.id] = el; }}
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handlePhotoUpload(req.id, req.proof_type, file);
+                            e.target.value = "";
+                          }}
+                          className="hidden"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => fileInputRefs.current[req.id]?.click()}
+                          disabled={isUploading}
+                          className={`w-full rounded-lg py-2.5 text-sm font-medium transition-colors ${
+                            isUploading
+                              ? "bg-gray-200 text-gray-400"
+                              : "bg-blue-600 text-white hover:bg-blue-700"
+                          }`}
+                        >
+                          {isUploading ? "Uploading…" : subs.length > 0 ? "📷 Add Another Photo" : "📷 Take Photo"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Accept / Decline buttons — only for pending shifts */}
         {shift.status === "pending" && (

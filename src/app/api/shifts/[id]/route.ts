@@ -1,8 +1,9 @@
 // GET /api/shifts/[id] — get single shift details
 // PUT /api/shifts/[id] — accept/decline (employee) OR preview/update (admin edit)
+// DELETE /api/shifts/[id] — admin permanently deletes an UNWORKED shift
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireMember, handleTenantError } from "@/lib/services/tenantContext";
+import { requireMember, requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
 import {
   validateShiftAssignment,
   requiresEmployeeReconfirmation,
@@ -139,6 +140,154 @@ export async function PUT(
     }
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+  } catch (err) {
+    return handleTenantError(err);
+  }
+}
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const ctx = await requireAdmin();
+
+    const body = await request.json().catch(() => ({}));
+    const { deleteReason } = body;
+
+    if (!deleteReason || !String(deleteReason).trim()) {
+      return NextResponse.json(
+        { error: "A reason for deleting this shift is required." },
+        { status: 400 }
+      );
+    }
+
+    const adminClient = createAdminClient();
+
+    const { data: shift } = await adminClient
+      .from("shifts")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (!shift) {
+      return NextResponse.json({ error: "Shift not found" }, { status: 404 });
+    }
+
+    // Tenant isolation — never trust the id alone.
+    if (shift.business_id !== ctx.businessId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    // ── Only UNWORKED shifts may be deleted. ──
+    // Anything with real work history is payroll evidence and must survive.
+    if (shift.status === "completed") {
+      return NextResponse.json(
+        { error: "This shift has been completed and cannot be deleted." },
+        { status: 400 }
+      );
+    }
+
+    const { data: attendance } = await adminClient
+      .from("shift_attendance")
+      .select("id")
+      .eq("shift_id", id)
+      .maybeSingle();
+
+    if (attendance) {
+      return NextResponse.json(
+        { error: "This shift has already been started and cannot be deleted." },
+        { status: 400 }
+      );
+    }
+
+    const { data: timesheet } = await adminClient
+      .from("timesheets")
+      .select("id")
+      .eq("shift_id", id)
+      .maybeSingle();
+
+    if (timesheet) {
+      return NextResponse.json(
+        { error: "This shift has a timesheet and cannot be deleted." },
+        { status: 400 }
+      );
+    }
+
+    const { data: odometer } = await adminClient
+      .from("odometer_submissions")
+      .select("id")
+      .eq("shift_id", id)
+      .limit(1);
+
+    if (odometer && odometer.length > 0) {
+      return NextResponse.json(
+        { error: "This shift has odometer records and cannot be deleted." },
+        { status: 400 }
+      );
+    }
+
+    const { data: proof } = await adminClient
+      .from("task_proof_submissions")
+      .select("id")
+      .eq("shift_id", id)
+      .limit(1);
+
+    if (proof && proof.length > 0) {
+      return NextResponse.json(
+        { error: "This shift has task proof photos and cannot be deleted." },
+        { status: 400 }
+      );
+    }
+
+    // ── Write the audit record BEFORE deleting. ──
+    // The FK is ON DELETE SET NULL, so this row survives the shift.
+    const { error: auditError } = await adminClient
+      .from("shift_audit_log")
+      .insert({
+        shift_id: id,
+        deleted_shift_id: id,
+        employee_id: shift.employee_id,
+        business_id: shift.business_id,
+        changed_by: ctx.userId,
+        original_date: shift.date,
+        original_start: shift.scheduled_start,
+        original_finish: shift.scheduled_finish,
+        original_location: shift.location,
+        original_instructions: shift.instructions,
+        original_status: shift.status,
+        new_status: "deleted",
+        change_reason: "shift_deleted",
+        change_notes: String(deleteReason).trim(),
+      });
+
+    if (auditError) {
+      console.error("Delete audit log error:", auditError);
+      return NextResponse.json(
+        { error: "Failed to record the deletion. Shift was not deleted." },
+        { status: 500 }
+      );
+    }
+
+    // Task proof requirements are config, not evidence — remove them with the shift.
+    await adminClient.from("task_proof_requirements").delete().eq("shift_id", id);
+
+    const { error: deleteError } = await adminClient
+      .from("shifts")
+      .delete()
+      .eq("id", id)
+      .eq("business_id", ctx.businessId);
+
+    if (deleteError) {
+      console.error("Shift delete error:", deleteError);
+      return NextResponse.json({ error: "Failed to delete shift." }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: "Shift deleted.",
+    });
   } catch (err) {
     return handleTenantError(err);
   }

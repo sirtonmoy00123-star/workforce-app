@@ -211,7 +211,7 @@ export default function RosterPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetContent, setSheetContent] = useState<
     "shift" | "edit" | "review" | "create1" | "create2" | "create3" |
-    "menu" | "copyWeek" | "copyPreview" | "findEmployee" | "pending" | null
+    "menu" | "copyWeek" | "copyPreview" | "findEmployee" | "pending" | "delete" | null
   >(null);
 
   // Selected shift (for shift detail / edit)
@@ -235,6 +235,11 @@ export default function RosterPage() {
   const [saveSuccess, setSaveSuccess] = useState("");
   const [saveError, setSaveError] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // ── Delete shift state ──
+  const [deleteReason, setDeleteReason] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
   // ── Create shift state ──
   const [createDate, setCreateDate] = useState("");
@@ -401,6 +406,48 @@ export default function RosterPage() {
     setReviewError("");
     setSaveSuccess("");
     setSaveError("");
+  }
+
+  // ── Delete shift ──
+  function startDeleting() {
+    if (!selectedShift) return;
+    setDeleteReason("");
+    setDeleteError("");
+    setSheetContent("delete");
+  }
+
+  async function handleDeleteShift() {
+    if (!selectedShift) return;
+
+    if (!deleteReason.trim()) {
+      setDeleteError("Please enter a reason for deleting this shift.");
+      return;
+    }
+
+    setDeleting(true);
+    setDeleteError("");
+
+    try {
+      const res = await fetch(`/api/shifts/${selectedShift.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deleteReason: deleteReason.trim() }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setDeleteError(data.error || "Failed to delete shift.");
+        setDeleting(false);
+        return;
+      }
+
+      // Remove from the local roster immediately.
+      setShifts((prev) => prev.filter((s) => s.id !== selectedShift.id));
+      closeSheet();
+    } catch {
+      setDeleteError("Something went wrong. Please try again.");
+    }
+    setDeleting(false);
   }
 
   async function handleReviewUpdate() {
@@ -1411,9 +1458,83 @@ export default function RosterPage() {
                           🔍 Find Replacement
                         </button>
                       )}
+                      {selectedShift.status !== "completed" && (
+                        <button onClick={startDeleting}
+                          className="w-full border border-red-300 text-red-600 rounded-xl py-3 text-sm font-medium hover:bg-red-50">
+                          🗑️ Delete Shift
+                        </button>
+                      )}
                       <button onClick={closeSheet}
                         className="w-full border border-gray-300 text-gray-700 rounded-xl py-3 text-sm font-medium hover:bg-gray-50">
                         Close
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {/* ── DELETE SHIFT ── */}
+                {sheetContent === "delete" && selectedShift && (
+                  <>
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-lg font-bold text-gray-900">Delete Shift</h2>
+                      <button onClick={closeSheet} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+                    </div>
+
+                    <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
+                      <div className="font-semibold text-red-800 text-sm mb-1">
+                        This permanently removes the shift.
+                      </div>
+                      <div className="text-sm text-red-700">
+                        {employees.find((e) => e.id === selectedShift.employee_id)?.full_name}
+                        {" · "}{formatFullDate(selectedShift.date)}
+                        <br />
+                        {formatTime(selectedShift.scheduled_start)} – {formatTime(selectedShift.scheduled_finish)}
+                      </div>
+                    </div>
+
+                    <div className="text-sm text-gray-500 mb-4">
+                      Only shifts that were never worked can be deleted. Started or completed
+                      shifts are kept as payroll evidence.
+                    </div>
+
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Reason for deleting <span className="text-red-500">*</span>
+                      </label>
+                      <textarea
+                        value={deleteReason}
+                        onChange={(e) => setDeleteReason(e.target.value)}
+                        rows={3}
+                        placeholder="e.g. Created by mistake — wrong employee selected."
+                        className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base
+                                   focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                      />
+                      <p className="text-xs text-gray-400 mt-1">
+                        Saved to the shift audit log.
+                      </p>
+                    </div>
+
+                    {deleteError && (
+                      <div className="bg-red-50 text-red-700 text-sm rounded-lg p-3 border border-red-200 mb-4">
+                        {deleteError}
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      <button
+                        onClick={handleDeleteShift}
+                        disabled={deleting}
+                        className="w-full bg-red-600 text-white rounded-xl py-3.5 text-base font-semibold
+                                   hover:bg-red-700 disabled:opacity-50 transition-colors"
+                      >
+                        {deleting ? "Deleting…" : "🗑️ Delete Shift"}
+                      </button>
+                      <button
+                        onClick={() => setSheetContent("shift")}
+                        disabled={deleting}
+                        className="w-full border border-gray-300 text-gray-700 rounded-xl py-3 text-sm font-medium hover:bg-gray-50"
+                      >
+                        Cancel
                       </button>
                     </div>
                   </>

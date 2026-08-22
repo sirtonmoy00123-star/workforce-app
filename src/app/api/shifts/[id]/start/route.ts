@@ -1,5 +1,5 @@
 // POST /api/shifts/[id]/start — Employee starts a shift
-// Creates shift_attendance record, uploads odometer photo, saves odometer submission
+// Creates shift_attendance record, optionally uploads odometer photo + saves odometer submission
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireRole, handleTenantError } from "@/lib/services/tenantContext";
@@ -50,71 +50,100 @@ export async function POST(
       return NextResponse.json({ error: "This shift has already been started." }, { status: 400 });
     }
 
+    // Check employee's odometer tracking setting (server-side, never from client)
+    const { data: employee } = await adminClient
+      .from("employees")
+      .select("odometer_tracking_enabled")
+      .eq("id", ctx.employeeId)
+      .single();
+
+    const odometerEnabled = employee?.odometer_tracking_enabled !== false;
+
     // Parse the form data (multipart for photo upload)
     const formData = await request.formData();
     const photo = formData.get("photo") as File | null;
-    const odometerReading = parseFloat(formData.get("odometer_reading") as string);
-
-    if (!photo) {
-      return NextResponse.json({ error: "Odometer photo is required." }, { status: 400 });
-    }
-    if (isNaN(odometerReading) || odometerReading < 0) {
-      return NextResponse.json({ error: "Valid odometer reading is required." }, { status: 400 });
-    }
-
-    // Upload photo to Supabase Storage (odometer-photos bucket)
-    const fileExt = photo.name.split(".").pop() || "jpg";
-    const fileName = `${ctx.employeeId}/${shiftId}/start_${Date.now()}.${fileExt}`;
-    const arrayBuffer = await photo.arrayBuffer();
-    const fileBuffer = new Uint8Array(arrayBuffer);
-
-    const { error: uploadError } = await adminClient.storage
-      .from("odometer-photos")
-      .upload(fileName, fileBuffer, {
-        contentType: photo.type || "image/jpeg",
-        upsert: false,
-      });
-
-    if (uploadError) {
-      console.error("Photo upload error:", uploadError);
-      return NextResponse.json({ error: "Failed to upload photo." }, { status: 500 });
-    }
+    const odometerReadingStr = formData.get("odometer_reading") as string;
+    const odometerReading = odometerReadingStr ? parseFloat(odometerReadingStr) : NaN;
 
     // Server timestamp for actual_start
     const serverNow = new Date().toISOString();
 
-    // Create shift_attendance record
-    const { error: attendanceError } = await adminClient
-      .from("shift_attendance")
-      .insert({
-        shift_id: shiftId,
-        employee_id: ctx.employeeId,
-        business_id: ctx.businessId,
-        actual_start: serverNow,
-        attendance_status: "working",
-      });
+    if (odometerEnabled) {
+      // Odometer is required
+      if (!photo) {
+        return NextResponse.json({ error: "Odometer photo is required." }, { status: 400 });
+      }
+      if (isNaN(odometerReading) || odometerReading < 0) {
+        return NextResponse.json({ error: "Valid odometer reading is required." }, { status: 400 });
+      }
 
-    if (attendanceError) {
-      console.error("Attendance insert error:", attendanceError);
-      return NextResponse.json({ error: "Failed to record attendance." }, { status: 500 });
-    }
+      // Upload photo to Supabase Storage (odometer-photos bucket)
+      const fileExt = photo.name.split(".").pop() || "jpg";
+      const fileName = `${ctx.employeeId}/${shiftId}/start_${Date.now()}.${fileExt}`;
+      const arrayBuffer = await photo.arrayBuffer();
+      const fileBuffer = new Uint8Array(arrayBuffer);
 
-    // Create odometer submission record
-    const { error: odometerError } = await adminClient
-      .from("odometer_submissions")
-      .insert({
-        shift_id: shiftId,
-        employee_id: ctx.employeeId,
-        business_id: ctx.businessId,
-        submission_type: "START",
-        photo_path: fileName,
-        odometer_reading: odometerReading,
-        server_timestamp: serverNow,
-      });
+      const { error: uploadError } = await adminClient.storage
+        .from("odometer-photos")
+        .upload(fileName, fileBuffer, {
+          contentType: photo.type || "image/jpeg",
+          upsert: false,
+        });
 
-    if (odometerError) {
-      console.error("Odometer submission error:", odometerError);
-      return NextResponse.json({ error: "Failed to save odometer reading." }, { status: 500 });
+      if (uploadError) {
+        console.error("Photo upload error:", uploadError);
+        return NextResponse.json({ error: "Failed to upload photo." }, { status: 500 });
+      }
+
+      // Create shift_attendance record
+      const { error: attendanceError } = await adminClient
+        .from("shift_attendance")
+        .insert({
+          shift_id: shiftId,
+          employee_id: ctx.employeeId,
+          business_id: ctx.businessId,
+          actual_start: serverNow,
+          attendance_status: "working",
+        });
+
+      if (attendanceError) {
+        console.error("Attendance insert error:", attendanceError);
+        return NextResponse.json({ error: "Failed to record attendance." }, { status: 500 });
+      }
+
+      // Create odometer submission record
+      const { error: odometerError } = await adminClient
+        .from("odometer_submissions")
+        .insert({
+          shift_id: shiftId,
+          employee_id: ctx.employeeId,
+          business_id: ctx.businessId,
+          submission_type: "START",
+          photo_path: fileName,
+          odometer_reading: odometerReading,
+          server_timestamp: serverNow,
+        });
+
+      if (odometerError) {
+        console.error("Odometer submission error:", odometerError);
+        return NextResponse.json({ error: "Failed to save odometer reading." }, { status: 500 });
+      }
+    } else {
+      // No odometer — just create attendance record
+      const { error: attendanceError } = await adminClient
+        .from("shift_attendance")
+        .insert({
+          shift_id: shiftId,
+          employee_id: ctx.employeeId,
+          business_id: ctx.businessId,
+          actual_start: serverNow,
+          attendance_status: "working",
+        });
+
+      if (attendanceError) {
+        console.error("Attendance insert error:", attendanceError);
+        return NextResponse.json({ error: "Failed to record attendance." }, { status: 500 });
+      }
     }
 
     return NextResponse.json({

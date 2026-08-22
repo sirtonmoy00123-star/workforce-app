@@ -40,6 +40,7 @@ export default function StartShiftPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [odometerRequired, setOdometerRequired] = useState(true);
 
   // Form state
   const [photo, setPhoto] = useState<File | null>(null);
@@ -47,17 +48,20 @@ export default function StartShiftPage() {
   const [odometerReading, setOdometerReading] = useState("");
 
   useEffect(() => {
-    fetch(`/api/shifts/${shiftId}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.error) setError(data.error);
-        else setShift(data);
-        setLoading(false);
-      })
-      .catch(() => {
-        setError("Failed to load shift.");
-        setLoading(false);
-      });
+    Promise.all([
+      fetch(`/api/shifts/${shiftId}`).then((r) => r.json()),
+      fetch("/api/profile").then((r) => r.json()),
+    ]).then(([shiftData, profileData]) => {
+      if (shiftData.error) setError(shiftData.error);
+      else setShift(shiftData);
+      if (profileData?.odometer_tracking_enabled === false) {
+        setOdometerRequired(false);
+      }
+      setLoading(false);
+    }).catch(() => {
+      setError("Failed to load shift.");
+      setLoading(false);
+    });
   }, [shiftId]);
 
   function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -72,21 +76,27 @@ export default function StartShiftPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!photo) {
-      setError("Please take or upload an odometer photo.");
-      return;
-    }
-    if (!odometerReading || parseFloat(odometerReading) < 0) {
-      setError("Please enter a valid odometer reading.");
-      return;
+
+    if (odometerRequired) {
+      if (!photo) {
+        setError("Please take or upload an odometer photo.");
+        return;
+      }
+      if (!odometerReading || parseFloat(odometerReading) < 0) {
+        setError("Please enter a valid odometer reading.");
+        return;
+      }
     }
 
     setSubmitting(true);
     setError("");
 
     const formData = new FormData();
-    formData.append("photo", photo);
-    formData.append("odometer_reading", odometerReading);
+    if (odometerRequired && photo) {
+      formData.append("photo", photo);
+      formData.append("odometer_reading", odometerReading);
+    }
+    formData.append("skip_odometer", odometerRequired ? "false" : "true");
 
     try {
       const res = await fetch(`/api/shifts/${shiftId}/start`, {
@@ -112,6 +122,9 @@ export default function StartShiftPage() {
   if (loading) return <div className="text-center py-12 text-gray-500">Loading…</div>;
   if (!shift) return <div className="text-center py-12 text-red-500">{error || "Shift not found."}</div>;
 
+  // Can submit: if odometer required, need photo + reading; otherwise always ready
+  const canSubmit = odometerRequired ? !!(photo && odometerReading) : true;
+
   return (
     <div className="max-w-lg mx-auto">
       <button
@@ -135,73 +148,83 @@ export default function StartShiftPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Step 1: Odometer Photo */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              📸 Step 1: Odometer Photo
-            </label>
-            <p className="text-xs text-gray-500 mb-2">
-              Take a photo of your vehicle&apos;s odometer before starting.
-            </p>
-
-            {photoPreview ? (
-              <div className="relative">
-                <img
-                  src={photoPreview}
-                  alt="Odometer preview"
-                  className="w-full h-48 object-cover rounded-lg border border-gray-200"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPhoto(null);
-                    setPhotoPreview(null);
-                    if (fileInputRef.current) fileInputRef.current.value = "";
-                  }}
-                  className="absolute top-2 right-2 bg-white/80 text-gray-700 rounded-full w-8 h-8 flex items-center justify-center text-lg hover:bg-white"
-                >
-                  ✕
-                </button>
-              </div>
-            ) : (
-              <div className="flex gap-2">
-                <label className="flex-1 cursor-pointer bg-blue-50 border-2 border-dashed border-blue-300 rounded-lg p-6 text-center hover:bg-blue-100 transition-colors">
-                  <div className="text-3xl mb-1">📷</div>
-                  <div className="text-sm font-medium text-blue-700">Take Photo or Upload</div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    onChange={handlePhotoChange}
-                    className="hidden"
-                  />
+          {odometerRequired ? (
+            <>
+              {/* Step 1: Odometer Photo */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  📸 Step 1: Odometer Photo
                 </label>
-              </div>
-            )}
-          </div>
+                <p className="text-xs text-gray-500 mb-2">
+                  Take a photo of your vehicle&apos;s odometer before starting.
+                </p>
 
-          {/* Step 2: Odometer Reading */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              🔢 Step 2: Enter Odometer Reading (km)
-            </label>
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              placeholder="e.g. 45230"
-              value={odometerReading}
-              onChange={(e) => setOdometerReading(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 text-lg font-mono
-                         focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
+                {photoPreview ? (
+                  <div className="relative">
+                    <img
+                      src={photoPreview}
+                      alt="Odometer preview"
+                      className="w-full h-48 object-cover rounded-lg border border-gray-200"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPhoto(null);
+                        setPhotoPreview(null);
+                        if (fileInputRef.current) fileInputRef.current.value = "";
+                      }}
+                      className="absolute top-2 right-2 bg-white/80 text-gray-700 rounded-full w-8 h-8 flex items-center justify-center text-lg hover:bg-white"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <label className="flex-1 cursor-pointer bg-blue-50 border-2 border-dashed border-blue-300 rounded-lg p-6 text-center hover:bg-blue-100 transition-colors">
+                      <div className="text-3xl mb-1">📷</div>
+                      <div className="text-sm font-medium text-blue-700">Take Photo or Upload</div>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        onChange={handlePhotoChange}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              {/* Step 2: Odometer Reading */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  🔢 Step 2: Enter Odometer Reading (km)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  placeholder="e.g. 45230"
+                  value={odometerReading}
+                  onChange={(e) => setOdometerReading(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-4 py-3 text-lg font-mono
+                             focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+            </>
+          ) : (
+            <div className="bg-gray-50 rounded-lg p-4 text-center">
+              <div className="text-2xl mb-2">✅</div>
+              <p className="text-sm text-gray-700 font-medium">Ready to start shift</p>
+              <p className="text-xs text-gray-500 mt-1">Odometer tracking is not required for your role.</p>
+            </div>
+          )}
 
           {/* Submit */}
           <button
             type="submit"
-            disabled={submitting || !photo || !odometerReading}
+            disabled={submitting || !canSubmit}
             className="w-full bg-green-600 text-white rounded-lg py-3.5 text-base font-bold
                        hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >

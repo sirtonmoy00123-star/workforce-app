@@ -1,5 +1,5 @@
 // POST /api/shifts/[id]/finish — Employee finishes a shift
-// Uploads finish odometer photo, updates attendance, auto-generates timesheet
+// Optionally uploads finish odometer photo, updates attendance, auto-generates timesheet
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireRole, handleTenantError } from "@/lib/services/tenantContext";
@@ -50,20 +50,20 @@ export async function POST(
       return NextResponse.json({ error: "This shift has not been started yet." }, { status: 400 });
     }
 
-    // Get the start odometer submission
-    const { data: startOdometer } = await adminClient
-      .from("odometer_submissions")
-      .select("*")
-      .eq("shift_id", shiftId)
-      .eq("employee_id", ctx.employeeId)
-      .eq("submission_type", "START")
+    // Check employee's odometer tracking setting (server-side, never from client)
+    const { data: employee } = await adminClient
+      .from("employees")
+      .select("hourly_rate, mileage_rate, odometer_tracking_enabled")
+      .eq("id", ctx.employeeId)
       .single();
 
-    if (!startOdometer) {
-      return NextResponse.json({ error: "Start odometer record not found." }, { status: 400 });
+    if (!employee) {
+      return NextResponse.json({ error: "Employee record not found." }, { status: 404 });
     }
 
-    // Check task proof requirements
+    const odometerEnabled = employee.odometer_tracking_enabled !== false;
+
+    // Check task proof requirements (applies regardless of odometer setting)
     const { data: proofRequirements } = await adminClient
       .from("task_proof_requirements")
       .select("*")
@@ -71,7 +71,7 @@ export async function POST(
       .eq("business_id", ctx.businessId);
 
     let taskProofMissing = false;
-    let taskProofMissingDetails: string[] = [];
+    const taskProofMissingDetails: string[] = [];
 
     if (proofRequirements && proofRequirements.length > 0) {
       // Get submissions for this shift
@@ -103,8 +103,6 @@ export async function POST(
 
     // Parse the form data
     const formData = await request.formData();
-    const photo = formData.get("photo") as File | null;
-    const odometerReading = parseFloat(formData.get("odometer_reading") as string);
     const forceFinish = formData.get("forceFinish") === "true";
 
     // If proof is missing but allowed to finish, require explicit acknowledgment
@@ -117,55 +115,79 @@ export async function POST(
       }, { status: 409 });
     }
 
-    if (!photo) {
-      return NextResponse.json({ error: "Odometer photo is required." }, { status: 400 });
-    }
-    if (isNaN(odometerReading) || odometerReading < 0) {
-      return NextResponse.json({ error: "Valid odometer reading is required." }, { status: 400 });
-    }
-    if (odometerReading < startOdometer.odometer_reading) {
-      return NextResponse.json({
-        error: `Finish odometer (${odometerReading}) cannot be less than start odometer (${startOdometer.odometer_reading}).`,
-      }, { status: 400 });
-    }
-
-    // Upload photo
-    const fileExt = photo.name.split(".").pop() || "jpg";
-    const fileName = `${ctx.employeeId}/${shiftId}/finish_${Date.now()}.${fileExt}`;
-    const arrayBuffer = await photo.arrayBuffer();
-    const fileBuffer = new Uint8Array(arrayBuffer);
-
-    const { error: uploadError } = await adminClient.storage
-      .from("odometer-photos")
-      .upload(fileName, fileBuffer, {
-        contentType: photo.type || "image/jpeg",
-        upsert: false,
-      });
-
-    if (uploadError) {
-      console.error("Photo upload error:", uploadError);
-      return NextResponse.json({ error: "Failed to upload photo." }, { status: 500 });
-    }
-
     // Server timestamp for actual_finish
     const serverNow = new Date().toISOString();
 
-    // Create finish odometer submission
-    const { error: odometerError } = await adminClient
-      .from("odometer_submissions")
-      .insert({
-        shift_id: shiftId,
-        employee_id: ctx.employeeId,
-        business_id: ctx.businessId,
-        submission_type: "FINISH",
-        photo_path: fileName,
-        odometer_reading: odometerReading,
-        server_timestamp: serverNow,
-      });
+    let startOdometerReading = 0;
+    let finishOdometerReading = 0;
 
-    if (odometerError) {
-      console.error("Odometer submission error:", odometerError);
-      return NextResponse.json({ error: "Failed to save odometer reading." }, { status: 500 });
+    if (odometerEnabled) {
+      // Get the start odometer submission
+      const { data: startOdometer } = await adminClient
+        .from("odometer_submissions")
+        .select("*")
+        .eq("shift_id", shiftId)
+        .eq("employee_id", ctx.employeeId)
+        .eq("submission_type", "START")
+        .single();
+
+      if (!startOdometer) {
+        return NextResponse.json({ error: "Start odometer record not found." }, { status: 400 });
+      }
+
+      startOdometerReading = startOdometer.odometer_reading;
+
+      const photo = formData.get("photo") as File | null;
+      const odometerReadingStr = formData.get("odometer_reading") as string;
+      finishOdometerReading = odometerReadingStr ? parseFloat(odometerReadingStr) : NaN;
+
+      if (!photo) {
+        return NextResponse.json({ error: "Odometer photo is required." }, { status: 400 });
+      }
+      if (isNaN(finishOdometerReading) || finishOdometerReading < 0) {
+        return NextResponse.json({ error: "Valid odometer reading is required." }, { status: 400 });
+      }
+      if (finishOdometerReading < startOdometerReading) {
+        return NextResponse.json({
+          error: `Finish odometer (${finishOdometerReading}) cannot be less than start odometer (${startOdometerReading}).`,
+        }, { status: 400 });
+      }
+
+      // Upload photo
+      const fileExt = photo.name.split(".").pop() || "jpg";
+      const fileName = `${ctx.employeeId}/${shiftId}/finish_${Date.now()}.${fileExt}`;
+      const arrayBuffer = await photo.arrayBuffer();
+      const fileBuffer = new Uint8Array(arrayBuffer);
+
+      const { error: uploadError } = await adminClient.storage
+        .from("odometer-photos")
+        .upload(fileName, fileBuffer, {
+          contentType: photo.type || "image/jpeg",
+          upsert: false,
+        });
+
+      if (uploadError) {
+        console.error("Photo upload error:", uploadError);
+        return NextResponse.json({ error: "Failed to upload photo." }, { status: 500 });
+      }
+
+      // Create finish odometer submission
+      const { error: odometerError } = await adminClient
+        .from("odometer_submissions")
+        .insert({
+          shift_id: shiftId,
+          employee_id: ctx.employeeId,
+          business_id: ctx.businessId,
+          submission_type: "FINISH",
+          photo_path: fileName,
+          odometer_reading: finishOdometerReading,
+          server_timestamp: serverNow,
+        });
+
+      if (odometerError) {
+        console.error("Odometer submission error:", odometerError);
+        return NextResponse.json({ error: "Failed to save odometer reading." }, { status: 500 });
+      }
     }
 
     // Update attendance: set actual_finish and status to completed
@@ -194,30 +216,16 @@ export async function POST(
     }
 
     // === AUTO-GENERATE TIMESHEET ===
-    // Get employee for rate snapshot
-    const { data: employee } = await adminClient
-      .from("employees")
-      .select("hourly_rate, mileage_rate")
-      .eq("id", ctx.employeeId)
-      .single();
-
-    if (!employee) {
-      return NextResponse.json({
-        success: true,
-        actual_finish: serverNow,
-        message: "Shift finished but could not find employee rates for timesheet.",
-        timesheet_error: true,
-      });
-    }
-
     const actualStart = new Date(attendance.actual_start!);
     const actualFinish = new Date(serverNow);
     const workedMinutes = calculateWorkedMinutes(actualStart, actualFinish);
-    const distanceKm = calculateMileage(startOdometer.odometer_reading, odometerReading);
+    const distanceKm = odometerEnabled
+      ? calculateMileage(startOdometerReading, finishOdometerReading)
+      : 0;
 
     // Snapshot the employee's current rates
     const hourlyRateSnapshot = employee.hourly_rate;
-    const mileageRateSnapshot = employee.mileage_rate;
+    const mileageRateSnapshot = odometerEnabled ? employee.mileage_rate : 0;
 
     const payment = calculatePayment(workedMinutes, distanceKm, hourlyRateSnapshot, mileageRateSnapshot);
 
@@ -232,8 +240,8 @@ export async function POST(
         actual_start: attendance.actual_start!,
         actual_finish: serverNow,
         worked_minutes: workedMinutes,
-        start_odometer: startOdometer.odometer_reading,
-        finish_odometer: odometerReading,
+        start_odometer: startOdometerReading,
+        finish_odometer: finishOdometerReading,
         distance_km: distanceKm,
         hourly_rate_snapshot: hourlyRateSnapshot,
         mileage_rate_snapshot: mileageRateSnapshot,

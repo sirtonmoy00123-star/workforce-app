@@ -14,6 +14,8 @@ interface Employee {
   employment_status: string;
   employment_type: "PERMANENT" | "PART_TIME" | "CASUAL";
   open_to_extra_shifts: boolean;
+  odometer_tracking_enabled: boolean;
+  task_proof_enabled: boolean;
   userRecord?: {
     id: string;
     username: string;
@@ -61,6 +63,8 @@ export default function EmployeeDetailPage() {
     mileageRate: "",
     employmentType: "PERMANENT" as string,
     openToExtraShifts: false,
+    odometerTrackingEnabled: true,
+    taskProofEnabled: false,
   });
 
   // Reset password state
@@ -87,6 +91,8 @@ export default function EmployeeDetailPage() {
             mileageRate: String(data.mileage_rate),
             employmentType: data.employment_type || "PERMANENT",
             openToExtraShifts: data.open_to_extra_shifts || false,
+            odometerTrackingEnabled: data.odometer_tracking_enabled !== false,
+            taskProofEnabled: data.task_proof_enabled || false,
           });
         }
         setLoading(false);
@@ -147,6 +153,8 @@ export default function EmployeeDetailPage() {
                 mileage_rate: data.mileage_rate,
                 employment_type: data.employment_type,
                 open_to_extra_shifts: data.open_to_extra_shifts,
+                odometer_tracking_enabled: data.odometer_tracking_enabled,
+                task_proof_enabled: data.task_proof_enabled,
               }
             : prev
         );
@@ -352,6 +360,48 @@ export default function EmployeeDetailPage() {
                   />
                   <span className="text-sm text-gray-700">Open to extra shifts</span>
                 </label>
+
+                {/* Shift Evidence Options */}
+                <div className="border-t border-gray-200 pt-3 mt-1">
+                  <div className="text-sm font-medium text-gray-700 mb-2">Shift Evidence Options</div>
+                  <div className="space-y-2">
+                    <label className="flex items-center justify-between p-3 rounded-lg border border-gray-200 cursor-pointer hover:border-gray-300 transition-colors">
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">🚗 Odometer Tracking</div>
+                        <div className="text-xs text-gray-500">Require odometer photos at shift start & end</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setForm({ ...form, odometerTrackingEnabled: !form.odometerTrackingEnabled })}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          form.odometerTrackingEnabled ? "bg-blue-600" : "bg-gray-300"
+                        }`}
+                      >
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          form.odometerTrackingEnabled ? "translate-x-6" : "translate-x-1"
+                        }`} />
+                      </button>
+                    </label>
+                    <label className="flex items-center justify-between p-3 rounded-lg border border-gray-200 cursor-pointer hover:border-gray-300 transition-colors">
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">📷 Task Proof Photos</div>
+                        <div className="text-xs text-gray-500">Require task proof uploads (cleaning, etc.)</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setForm({ ...form, taskProofEnabled: !form.taskProofEnabled })}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          form.taskProofEnabled ? "bg-blue-600" : "bg-gray-300"
+                        }`}
+                      >
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          form.taskProofEnabled ? "translate-x-6" : "translate-x-1"
+                        }`} />
+                      </button>
+                    </label>
+                  </div>
+                </div>
+
                 <div className="flex gap-2 pt-2">
                   <button
                     onClick={handleSave}
@@ -396,6 +446,14 @@ export default function EmployeeDetailPage() {
                   <div>
                     <span className="text-gray-500">Extra Shifts</span>
                     <div className="font-medium">{employee.open_to_extra_shifts ? "✓ Open" : "—"}</div>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Odometer Tracking</span>
+                    <div className="font-medium">{employee.odometer_tracking_enabled ? "🚗 ON" : "OFF"}</div>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Task Proof</span>
+                    <div className="font-medium">{employee.task_proof_enabled ? "📷 ON" : "OFF"}</div>
                   </div>
                   {employee.userRecord && (
                     <div>

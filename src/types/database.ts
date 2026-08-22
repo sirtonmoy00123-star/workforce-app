@@ -56,6 +56,8 @@ export type Database = {
           employment_status: "active" | "inactive";
           employment_type: "PERMANENT" | "PART_TIME" | "CASUAL";
           open_to_extra_shifts: boolean;
+          odometer_tracking_enabled: boolean;
+          task_proof_enabled: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -71,6 +73,8 @@ export type Database = {
           employment_status?: "active" | "inactive";
           employment_type?: "PERMANENT" | "PART_TIME" | "CASUAL";
           open_to_extra_shifts?: boolean;
+          odometer_tracking_enabled?: boolean;
+          task_proof_enabled?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -86,6 +90,8 @@ export type Database = {
           employment_status?: "active" | "inactive";
           employment_type?: "PERMANENT" | "PART_TIME" | "CASUAL";
           open_to_extra_shifts?: boolean;
+          odometer_tracking_enabled?: boolean;
+          task_proof_enabled?: boolean;
           created_at?: string;
           updated_at?: string;
         };

@@ -15,7 +15,7 @@ export async function GET() {
 
     const { data: employee, error } = await adminClient
       .from("employees")
-      .select("full_name, employee_number, phone, hourly_rate, mileage_rate, employment_status")
+      .select("full_name, employee_number, phone, hourly_rate, mileage_rate, employment_status, odometer_tracking_enabled, task_proof_enabled")
       .eq("id", ctx.employeeId)
       .eq("business_id", ctx.businessId)
       .single();

@@ -50,6 +50,7 @@ export default function FinishShiftPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [timesheet, setTimesheet] = useState<TimesheetResult | null>(null);
+  const [odometerRequired, setOdometerRequired] = useState(true);
 
   // Task proof warning state
   const [proofWarning, setProofWarning] = useState<{ message: string; missingProof: string[] } | null>(null);
@@ -60,17 +61,20 @@ export default function FinishShiftPage() {
   const [odometerReading, setOdometerReading] = useState("");
 
   useEffect(() => {
-    fetch(`/api/shifts/${shiftId}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.error) setError(data.error);
-        else setShift(data);
-        setLoading(false);
-      })
-      .catch(() => {
-        setError("Failed to load shift.");
-        setLoading(false);
-      });
+    Promise.all([
+      fetch(`/api/shifts/${shiftId}`).then((r) => r.json()),
+      fetch("/api/profile").then((r) => r.json()),
+    ]).then(([shiftData, profileData]) => {
+      if (shiftData.error) setError(shiftData.error);
+      else setShift(shiftData);
+      if (profileData?.odometer_tracking_enabled === false) {
+        setOdometerRequired(false);
+      }
+      setLoading(false);
+    }).catch(() => {
+      setError("Failed to load shift.");
+      setLoading(false);
+    });
   }, [shiftId]);
 
   function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -85,13 +89,16 @@ export default function FinishShiftPage() {
 
   async function handleSubmit(e: React.FormEvent, forceFinish = false) {
     e.preventDefault();
-    if (!photo) {
-      setError("Please take or upload an odometer photo.");
-      return;
-    }
-    if (!odometerReading || parseFloat(odometerReading) < 0) {
-      setError("Please enter a valid odometer reading.");
-      return;
+
+    if (odometerRequired) {
+      if (!photo) {
+        setError("Please take or upload an odometer photo.");
+        return;
+      }
+      if (!odometerReading || parseFloat(odometerReading) < 0) {
+        setError("Please enter a valid odometer reading.");
+        return;
+      }
     }
 
     setSubmitting(true);
@@ -99,8 +106,11 @@ export default function FinishShiftPage() {
     setProofWarning(null);
 
     const formData = new FormData();
-    formData.append("photo", photo);
-    formData.append("odometer_reading", odometerReading);
+    if (odometerRequired && photo) {
+      formData.append("photo", photo);
+      formData.append("odometer_reading", odometerReading);
+    }
+    formData.append("skip_odometer", odometerRequired ? "false" : "true");
     if (forceFinish) formData.append("forceFinish", "true");
 
     try {
@@ -151,6 +161,9 @@ export default function FinishShiftPage() {
   if (loading) return <div className="text-center py-12 text-gray-500">Loading…</div>;
   if (!shift) return <div className="text-center py-12 text-red-500">{error || "Shift not found."}</div>;
 
+  // Can submit: if odometer required, need photo + reading; otherwise always ready
+  const canSubmit = odometerRequired ? !!(photo && odometerReading) : true;
+
   // Success screen — show timesheet summary
   if (success) {
     return (
@@ -169,19 +182,23 @@ export default function FinishShiftPage() {
                 <span className="text-gray-500">Hours Worked</span>
                 <span className="font-medium">{formatDuration(timesheet.worked_minutes)}</span>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Distance</span>
-                <span className="font-medium">{timesheet.distance_km} km</span>
-              </div>
+              {odometerRequired && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Distance</span>
+                  <span className="font-medium">{timesheet.distance_km} km</span>
+                </div>
+              )}
               <hr className="my-2" />
               <div className="flex justify-between text-sm">
                 <span className="text-gray-500">Wages</span>
                 <span className="font-medium">${timesheet.wage_amount.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Mileage</span>
-                <span className="font-medium">${timesheet.mileage_amount.toFixed(2)}</span>
-              </div>
+              {odometerRequired && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Mileage</span>
+                  <span className="font-medium">${timesheet.mileage_amount.toFixed(2)}</span>
+                </div>
+              )}
               <hr className="my-2" />
               <div className="flex justify-between text-sm font-bold">
                 <span>Estimated Total</span>
@@ -225,68 +242,78 @@ export default function FinishShiftPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Step 1: Odometer Photo */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              📸 Step 1: Odometer Photo
-            </label>
-            <p className="text-xs text-gray-500 mb-2">
-              Take a photo of your vehicle&apos;s odometer after finishing.
-            </p>
-
-            {photoPreview ? (
-              <div className="relative">
-                <img
-                  src={photoPreview}
-                  alt="Odometer preview"
-                  className="w-full h-48 object-cover rounded-lg border border-gray-200"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPhoto(null);
-                    setPhotoPreview(null);
-                    if (fileInputRef.current) fileInputRef.current.value = "";
-                  }}
-                  className="absolute top-2 right-2 bg-white/80 text-gray-700 rounded-full w-8 h-8 flex items-center justify-center text-lg hover:bg-white"
-                >
-                  ✕
-                </button>
-              </div>
-            ) : (
-              <div className="flex gap-2">
-                <label className="flex-1 cursor-pointer bg-blue-50 border-2 border-dashed border-blue-300 rounded-lg p-6 text-center hover:bg-blue-100 transition-colors">
-                  <div className="text-3xl mb-1">📷</div>
-                  <div className="text-sm font-medium text-blue-700">Take Photo or Upload</div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    onChange={handlePhotoChange}
-                    className="hidden"
-                  />
+          {odometerRequired ? (
+            <>
+              {/* Step 1: Odometer Photo */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  📸 Step 1: Odometer Photo
                 </label>
-              </div>
-            )}
-          </div>
+                <p className="text-xs text-gray-500 mb-2">
+                  Take a photo of your vehicle&apos;s odometer after finishing.
+                </p>
 
-          {/* Step 2: Odometer Reading */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              🔢 Step 2: Enter Odometer Reading (km)
-            </label>
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              placeholder="e.g. 45280"
-              value={odometerReading}
-              onChange={(e) => setOdometerReading(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 text-lg font-mono
-                         focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
+                {photoPreview ? (
+                  <div className="relative">
+                    <img
+                      src={photoPreview}
+                      alt="Odometer preview"
+                      className="w-full h-48 object-cover rounded-lg border border-gray-200"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPhoto(null);
+                        setPhotoPreview(null);
+                        if (fileInputRef.current) fileInputRef.current.value = "";
+                      }}
+                      className="absolute top-2 right-2 bg-white/80 text-gray-700 rounded-full w-8 h-8 flex items-center justify-center text-lg hover:bg-white"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <label className="flex-1 cursor-pointer bg-blue-50 border-2 border-dashed border-blue-300 rounded-lg p-6 text-center hover:bg-blue-100 transition-colors">
+                      <div className="text-3xl mb-1">📷</div>
+                      <div className="text-sm font-medium text-blue-700">Take Photo or Upload</div>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        onChange={handlePhotoChange}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              {/* Step 2: Odometer Reading */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  🔢 Step 2: Enter Odometer Reading (km)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  placeholder="e.g. 45280"
+                  value={odometerReading}
+                  onChange={(e) => setOdometerReading(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-4 py-3 text-lg font-mono
+                             focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+            </>
+          ) : (
+            <div className="bg-gray-50 rounded-lg p-4 text-center">
+              <div className="text-2xl mb-2">🏁</div>
+              <p className="text-sm text-gray-700 font-medium">Ready to finish shift</p>
+              <p className="text-xs text-gray-500 mt-1">Odometer tracking is not required for your role.</p>
+            </div>
+          )}
 
           {/* Task Proof Warning */}
           {proofWarning && (
@@ -327,7 +354,7 @@ export default function FinishShiftPage() {
           {!proofWarning && (
             <button
               type="submit"
-              disabled={submitting || !photo || !odometerReading}
+              disabled={submitting || !canSubmit}
               className="w-full bg-red-600 text-white rounded-lg py-3.5 text-base font-bold
                          hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >

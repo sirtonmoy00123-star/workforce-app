@@ -28,7 +28,7 @@ export async function POST(request: Request) {
     const ctx = await requireAdmin();
 
     const body = await request.json();
-    const { fullName, phone, employeeNumber, hourlyRate, mileageRate, userId, temporaryPassword } = body;
+    const { fullName, phone, employeeNumber, hourlyRate, mileageRate, userId, temporaryPassword, odometerTrackingEnabled, taskProofEnabled } = body;
 
     // Validation
     if (!fullName || !employeeNumber || !userId || !temporaryPassword) {
@@ -125,6 +125,8 @@ export async function POST(request: Request) {
         hourly_rate: parseFloat(hourlyRate) || 0,
         mileage_rate: parseFloat(mileageRate) || 0,
         employment_status: "active",
+        odometer_tracking_enabled: odometerTrackingEnabled !== false,
+        task_proof_enabled: !!taskProofEnabled,
       })
       .select("*")
       .single();

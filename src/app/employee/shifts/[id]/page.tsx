@@ -81,6 +81,7 @@ export default function ShiftDetailPage() {
   const [justStarted, setJustStarted] = useState(false);
 
   // Task Proof state
+  const [taskProofEnabled, setTaskProofEnabled] = useState(false);
   const [proofRequirements, setProofRequirements] = useState<ProofRequirement[]>([]);
   const [proofSubmissions, setProofSubmissions] = useState<ProofSubmission[]>([]);
   const [uploading, setUploading] = useState<string | null>(null); // requirement_id being uploaded
@@ -107,19 +108,21 @@ export default function ShiftDetailPage() {
       setJustStarted(true);
     }
 
-    fetch(`/api/shifts/${id}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.error) setError(data.error);
-        else {
-          setShift(data);
-          loadProofData(id);
-        }
-        setLoading(false);
-      })
-      .catch(() => {
-        setError("Failed to load shift.");
-        setLoading(false);
+    Promise.all([
+      fetch(`/api/shifts/${id}`).then((r) => r.json()),
+      fetch("/api/profile").then((r) => r.json()),
+    ]).then(([shiftData, profileData]) => {
+      if (shiftData.error) setError(shiftData.error);
+      else {
+        setShift(shiftData);
+        const proofOn = profileData?.task_proof_enabled === true;
+        setTaskProofEnabled(proofOn);
+        if (proofOn) loadProofData(id);
+      }
+      setLoading(false);
+    }).catch(() => {
+      setError("Failed to load shift.");
+      setLoading(false);
       });
   }, [id]);
 
@@ -272,7 +275,7 @@ export default function ShiftDetailPage() {
         </div>
 
         {/* Task Proof Section */}
-        {proofRequirements.length > 0 && (
+        {taskProofEnabled && proofRequirements.length > 0 && (
           <div className="mt-6 border-t border-gray-200 pt-5">
             <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
               📷 Task Proof {proofRequirements.some((r) => r.is_required) ? "Required" : ""}

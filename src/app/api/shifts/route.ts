@@ -44,7 +44,7 @@ export async function POST(request: Request) {
     const ctx = await requireAdmin();
 
     const body = await request.json();
-    const { employeeId, date, startTime, endTime, location, instructions, overrideAvailability, timezoneOffsetMinutes } = body;
+    const { employeeId, date, startTime, endTime, location, instructions, overrideAvailability, timezoneOffsetMinutes, requireOdometer } = body;
 
     if (!employeeId || !date || !startTime || !endTime) {
       return NextResponse.json(
@@ -141,6 +141,7 @@ export async function POST(request: Request) {
         scheduled_finish: scheduledFinish,
         location: location || null,
         instructions: instructions || null,
+        require_odometer: typeof requireOdometer === "boolean" ? requireOdometer : null,
         status: "pending",
         created_by: ctx.userId,
       })

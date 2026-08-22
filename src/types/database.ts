@@ -152,6 +152,7 @@ export type Database = {
           is_recurring: boolean;
           recurrence_type: "NONE" | "NEXT_WEEK" | "WEEKLY_END_OF_MONTH" | "WEEKLY_CUSTOM_END";
           recurrence_end_date: string | null;
+          require_odometer: boolean | null;
           created_by: string | null;
           updated_by: string | null;
           last_change_reason: string | null;
@@ -173,6 +174,7 @@ export type Database = {
           is_recurring?: boolean;
           recurrence_type?: "NONE" | "NEXT_WEEK" | "WEEKLY_END_OF_MONTH" | "WEEKLY_CUSTOM_END";
           recurrence_end_date?: string | null;
+          require_odometer?: boolean | null;
           created_by?: string | null;
           updated_by?: string | null;
           last_change_reason?: string | null;
@@ -194,6 +196,7 @@ export type Database = {
           is_recurring?: boolean;
           recurrence_type?: "NONE" | "NEXT_WEEK" | "WEEKLY_END_OF_MONTH" | "WEEKLY_CUSTOM_END";
           recurrence_end_date?: string | null;
+          require_odometer?: boolean | null;
           created_by?: string | null;
           updated_by?: string | null;
           last_change_reason?: string | null;

@@ -259,6 +259,9 @@ export default function RosterPage() {
   const [createError, setCreateError] = useState("");
   const [createSuccess, setCreateSuccess] = useState("");
 
+  // ── Odometer state for shift creation ──
+  const [odometerEnabled, setOdometerEnabled] = useState(false);
+
   // ── Task Proof state for shift creation ──
   const [taskProofEnabled, setTaskProofEnabled] = useState(false);
   const [proofRequirements, setProofRequirements] = useState<ProofRequirement[]>([
@@ -702,6 +705,7 @@ export default function RosterPage() {
             location: createLocation,
             instructions: createInstructions,
             overrideAvailability: true,
+            requireOdometer: odometerEnabled || undefined,
             timezoneOffsetMinutes: new Date().getTimezoneOffset(),
           }),
         });
@@ -732,6 +736,7 @@ export default function RosterPage() {
             customEndDate: recurrenceType === "WEEKLY_CUSTOM_END" ? customEndDate : undefined,
             assignments: null,
             saveAsDraft: false,
+            requireOdometer: odometerEnabled || undefined,
             timezoneOffsetMinutes: new Date().getTimezoneOffset(),
           }),
         });
@@ -1925,6 +1930,27 @@ export default function RosterPage() {
                           ) : null;
                         })}
                       </div>
+                    </div>
+
+                    {/* Odometer */}
+                    <div className="mb-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">🚗 Odometer</div>
+                        <button
+                          type="button"
+                          onClick={() => setOdometerEnabled(!odometerEnabled)}
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                            odometerEnabled ? "bg-blue-600" : "bg-gray-300"
+                          }`}
+                        >
+                          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                            odometerEnabled ? "translate-x-4" : "translate-x-0.5"
+                          }`} />
+                        </button>
+                      </div>
+                      {odometerEnabled && (
+                        <p className="text-xs text-gray-500">Employee must upload odometer photos at shift start &amp; finish.</p>
+                      )}
                     </div>
 
                     {/* Task Proof */}

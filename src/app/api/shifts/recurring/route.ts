@@ -112,6 +112,7 @@ async function handleCreate(body: any, ctx: { businessId: string; userId: string
     customEndDate,
     assignments, // EmployeeDateStatus[][] — with skipped/overridden flags
     timezoneOffsetMinutes,
+    requireOdometer,
   } = body;
 
   if (!date || !startTime || !endTime || !employeeIds?.length || !recurrenceType) {
@@ -153,6 +154,7 @@ async function handleCreate(body: any, ctx: { businessId: string; userId: string
     is_recurring: boolean;
     recurrence_type: "NONE" | "NEXT_WEEK" | "WEEKLY_END_OF_MONTH" | "WEEKLY_CUSTOM_END";
     recurrence_end_date: string | null;
+    require_odometer: boolean | null;
     created_by: string;
   };
   const shiftsToInsert: ShiftInsert[] = [];
@@ -194,6 +196,7 @@ async function handleCreate(body: any, ctx: { businessId: string; userId: string
         is_recurring: isRecurring,
         recurrence_type: recurrenceType as "NONE" | "NEXT_WEEK" | "WEEKLY_END_OF_MONTH" | "WEEKLY_CUSTOM_END",
         recurrence_end_date: customEndDate || null,
+        require_odometer: typeof requireOdometer === "boolean" ? requireOdometer : null,
         created_by: ctx.userId,
       });
     }

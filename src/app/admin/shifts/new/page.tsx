@@ -97,6 +97,9 @@ export default function NewShiftPage() {
   const [customEndDate, setCustomEndDate] = useState("");
   const [keepSameEmployees, setKeepSameEmployees] = useState(true);
 
+  // Odometer state
+  const [odometerEnabled, setOdometerEnabled] = useState(false);
+
   // Task Proof state
   const [taskProofEnabled, setTaskProofEnabled] = useState(false);
   const [proofRequirements, setProofRequirements] = useState<ProofRequirement[]>([
@@ -323,6 +326,7 @@ export default function NewShiftPage() {
             location: form.location,
             instructions: form.instructions,
             overrideAvailability: true, // they already confirmed in this flow
+            requireOdometer: odometerEnabled || undefined,
             timezoneOffsetMinutes: new Date().getTimezoneOffset(),
           }),
         });
@@ -372,6 +376,7 @@ export default function NewShiftPage() {
           customEndDate: recurrenceType === "WEEKLY_CUSTOM_END" ? customEndDate : undefined,
           assignments: preview?.employees || null,
           saveAsDraft,
+          requireOdometer: odometerEnabled || undefined,
           timezoneOffsetMinutes: new Date().getTimezoneOffset(),
         }),
       });
@@ -538,6 +543,29 @@ export default function NewShiftPage() {
                            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
+          </div>
+
+          {/* Odometer card */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-gray-900">🚗 Odometer</h2>
+              <button
+                type="button"
+                onClick={() => setOdometerEnabled(!odometerEnabled)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  odometerEnabled ? "bg-blue-600" : "bg-gray-300"
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    odometerEnabled ? "translate-x-6" : "translate-x-1"
+                  }`}
+                />
+              </button>
+            </div>
+            {odometerEnabled && (
+              <p className="text-sm text-gray-500">Employee must upload odometer photos and readings at shift start &amp; finish.</p>
+            )}
           </div>
 
           {/* Task Proof card */}
@@ -1036,6 +1064,15 @@ export default function NewShiftPage() {
                 </div>
               ))}
             </div>
+
+            {/* Odometer summary */}
+            {odometerEnabled && (
+              <div className="mb-6">
+                <span className="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-1 rounded-full">
+                  🚗 Odometer Required
+                </span>
+              </div>
+            )}
 
             {/* Task Proof summary */}
             {taskProofEnabled && (

@@ -50,14 +50,16 @@ export async function POST(
       return NextResponse.json({ error: "This shift has already been started." }, { status: 400 });
     }
 
-    // Check employee's odometer tracking setting (server-side, never from client)
+    // Check odometer requirement: per-shift override > employee default
     const { data: employee } = await adminClient
       .from("employees")
       .select("odometer_tracking_enabled")
       .eq("id", ctx.employeeId)
       .single();
 
-    const odometerEnabled = employee?.odometer_tracking_enabled !== false;
+    const odometerEnabled = shift.require_odometer !== null
+      ? shift.require_odometer                          // per-shift override
+      : employee?.odometer_tracking_enabled !== false;   // employee default
 
     // Parse the form data (multipart for photo upload)
     const formData = await request.formData();

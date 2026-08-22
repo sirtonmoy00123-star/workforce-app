@@ -54,7 +54,10 @@ export default function StartShiftPage() {
     ]).then(([shiftData, profileData]) => {
       if (shiftData.error) setError(shiftData.error);
       else setShift(shiftData);
-      if (profileData?.odometer_tracking_enabled === false) {
+      // Per-shift override takes priority over employee default
+      if (shiftData.require_odometer !== null && shiftData.require_odometer !== undefined) {
+        setOdometerRequired(shiftData.require_odometer);
+      } else if (profileData?.odometer_tracking_enabled === false) {
         setOdometerRequired(false);
       }
       setLoading(false);

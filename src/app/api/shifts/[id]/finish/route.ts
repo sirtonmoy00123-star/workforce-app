@@ -50,7 +50,7 @@ export async function POST(
       return NextResponse.json({ error: "This shift has not been started yet." }, { status: 400 });
     }
 
-    // Check employee's odometer tracking setting (server-side, never from client)
+    // Check odometer requirement: per-shift override > employee default
     const { data: employee } = await adminClient
       .from("employees")
       .select("hourly_rate, mileage_rate, odometer_tracking_enabled")
@@ -61,7 +61,9 @@ export async function POST(
       return NextResponse.json({ error: "Employee record not found." }, { status: 404 });
     }
 
-    const odometerEnabled = employee.odometer_tracking_enabled !== false;
+    const odometerEnabled = shift.require_odometer !== null
+      ? shift.require_odometer                          // per-shift override
+      : employee.odometer_tracking_enabled !== false;    // employee default
 
     // Check task proof requirements (applies regardless of odometer setting)
     const { data: proofRequirements } = await adminClient

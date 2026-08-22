@@ -621,7 +621,7 @@ export default function NewShiftPage() {
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <label className="block text-[11px] text-gray-500 mb-0.5">Min Photos</label>
+                            <label className="block text-xs text-gray-500 mb-0.5">Min Photos</label>
                             <input
                               type="number"
                               min="1"
@@ -632,7 +632,7 @@ export default function NewShiftPage() {
                             />
                           </div>
                           <div>
-                            <label className="block text-[11px] text-gray-500 mb-0.5">Max Photos</label>
+                            <label className="block text-xs text-gray-500 mb-0.5">Max Photos</label>
                             <input
                               type="number"
                               min="1"

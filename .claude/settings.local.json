@@ -41,7 +41,8 @@
       "Bash(git commit -m 'Task Proof Phase 3: Employee photo upload *)",
       "Bash(git commit -m 'Task Proof Phases 4-10: Finish validation, admin gallery, timesheet review, corrections, templates, security *)",
       "Bash(git commit -m 'Add Task Proof config to roster inline shift creation *)",
-      "Bash(git commit -m 'Shift Evidence Options: per-employee Odometer & Task Proof toggles *)"
+      "Bash(git commit -m 'Shift Evidence Options: per-employee Odometer & Task Proof toggles *)",
+      "mcp__claude-in-chrome__tabs_context_mcp"
     ]
   }
 }

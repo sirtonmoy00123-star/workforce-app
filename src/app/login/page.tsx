@@ -78,7 +78,7 @@ export default function LoginPage() {
               required
               autoComplete="username"
               placeholder="Enter your User ID"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm
+              className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base
                          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
@@ -98,7 +98,7 @@ export default function LoginPage() {
               required
               autoComplete="current-password"
               placeholder="Enter your password"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm
+              className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base
                          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
@@ -106,7 +106,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 text-white rounded-lg py-2.5 text-sm font-medium
+            className="w-full bg-blue-600 text-white rounded-lg py-3.5 text-base font-semibold
                        hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500
                        disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >

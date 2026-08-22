@@ -493,11 +493,11 @@ export default function AdminTimesheetDetailPage() {
                                   ) : (
                                     <div className="w-20 h-20 bg-gray-200 rounded-lg flex items-center justify-center text-xs text-gray-400">📷</div>
                                   )}
-                                  <div className="text-[10px] text-gray-400">
+                                  <div className="text-xs text-gray-400">
                                     {new Date(sub.server_timestamp).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit", hour12: true })}
                                   </div>
                                   {sub.status === "CORRECTION_REQUIRED" ? (
-                                    <div className="text-[10px] text-red-500 font-medium">⚠ Correction sent</div>
+                                    <div className="text-xs text-red-500 font-medium">⚠ Correction sent</div>
                                   ) : (
                                     <button
                                       onClick={async () => {
@@ -510,7 +510,7 @@ export default function AdminTimesheetDetailPage() {
                                         });
                                         if (res.ok) loadData();
                                       }}
-                                      className="text-[10px] text-orange-600 hover:underline"
+                                      className="text-xs text-orange-600 hover:underline"
                                     >
                                       ⚠ Needs correction
                                     </button>

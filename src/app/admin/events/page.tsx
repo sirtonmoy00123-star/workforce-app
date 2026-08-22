@@ -87,7 +87,7 @@ export default function EventsListPage() {
       <div className="flex gap-1 mb-4 bg-gray-100 rounded-lg p-1 w-fit">
         <button
           onClick={() => setFilter("upcoming")}
-          className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
             filter === "upcoming" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"
           }`}
         >
@@ -95,7 +95,7 @@ export default function EventsListPage() {
         </button>
         <button
           onClick={() => setFilter("all")}
-          className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
             filter === "all" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"
           }`}
         >

@@ -93,7 +93,7 @@ export default function EmployeeShiftsPage() {
             }`}
           >
             {shift.event_id && eventNames[shift.event_id] && (
-              <div className="text-[11px] font-medium text-purple-600 mb-1">
+              <div className="text-xs font-medium text-purple-600 mb-1">
                 ⚽ {eventNames[shift.event_id]}
               </div>
             )}

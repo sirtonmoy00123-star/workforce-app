@@ -377,7 +377,7 @@ export default function ShiftDetailPage() {
                                 )}
                               </div>
                               <div className="flex-1 min-w-0">
-                                <div className="text-[11px] text-gray-400">
+                                <div className="text-xs text-gray-400">
                                   {new Date(sub.server_timestamp).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit", hour12: true })}
                                 </div>
                                 {sub.status === "CORRECTION_REQUIRED" && (
@@ -408,7 +408,7 @@ export default function ShiftDetailPage() {
                                   </div>
                                 )}
                                 {sub.status === "APPROVED" && (
-                                  <div className="text-[11px] text-green-600 font-medium">✓ Approved</div>
+                                  <div className="text-xs text-green-600 font-medium">✓ Approved</div>
                                 )}
                               </div>
                             </div>
@@ -417,7 +417,7 @@ export default function ShiftDetailPage() {
                       </div>
                     )}
 
-                    <div className="text-[11px] text-gray-400 mb-2">
+                    <div className="text-xs text-gray-400 mb-2">
                       {subs.length} of {req.minimum_photos}–{req.maximum_photos} photos
                     </div>
 
@@ -463,7 +463,7 @@ export default function ShiftDetailPage() {
             <button
               onClick={() => handleAction("accept")}
               disabled={acting}
-              className="flex-1 bg-green-600 text-white rounded-lg py-2.5 text-sm font-medium
+              className="flex-1 bg-green-600 text-white rounded-xl py-3.5 text-base font-semibold
                          hover:bg-green-700 disabled:opacity-50 transition-colors"
             >
               {acting ? "…" : "Accept"}
@@ -471,7 +471,7 @@ export default function ShiftDetailPage() {
             <button
               onClick={() => handleAction("decline")}
               disabled={acting}
-              className="flex-1 bg-red-600 text-white rounded-lg py-2.5 text-sm font-medium
+              className="flex-1 bg-red-600 text-white rounded-xl py-3.5 text-base font-semibold
                          hover:bg-red-700 disabled:opacity-50 transition-colors"
             >
               {acting ? "…" : "Decline"}

@@ -373,12 +373,12 @@ export default function EmployeeDetailPage() {
                       <button
                         type="button"
                         onClick={() => setForm({ ...form, odometerTrackingEnabled: !form.odometerTrackingEnabled })}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors ${
                           form.odometerTrackingEnabled ? "bg-blue-600" : "bg-gray-300"
                         }`}
                       >
-                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                          form.odometerTrackingEnabled ? "translate-x-6" : "translate-x-1"
+                        <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform shadow-sm ${
+                          form.odometerTrackingEnabled ? "translate-x-7" : "translate-x-1"
                         }`} />
                       </button>
                     </label>
@@ -390,12 +390,12 @@ export default function EmployeeDetailPage() {
                       <button
                         type="button"
                         onClick={() => setForm({ ...form, taskProofEnabled: !form.taskProofEnabled })}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors ${
                           form.taskProofEnabled ? "bg-blue-600" : "bg-gray-300"
                         }`}
                       >
-                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                          form.taskProofEnabled ? "translate-x-6" : "translate-x-1"
+                        <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform shadow-sm ${
+                          form.taskProofEnabled ? "translate-x-7" : "translate-x-1"
                         }`} />
                       </button>
                     </label>

@@ -908,21 +908,21 @@ export default function RosterPage() {
 
       {/* ── Week Navigation ── */}
       <div className="flex items-center justify-between bg-white rounded-lg border border-gray-200 px-3 py-2.5 mb-3">
-        <button onClick={prevWeek} className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-lg text-lg">‹</button>
-        <button onClick={goToday} className="text-sm font-medium text-gray-900 hover:text-blue-600">
+        <button onClick={prevWeek} className="p-2.5 text-gray-500 hover:bg-gray-100 rounded-lg text-xl">‹</button>
+        <button onClick={goToday} className="text-sm font-medium text-gray-900 hover:text-blue-600 py-2">
           {formatShortDate(weekDates[0])} – {formatShortDate(weekDates[6])}
           {weekDates[0] <= new Date() && weekDates[6] >= new Date() && (
             <span className="ml-1.5 text-xs text-blue-600 font-normal">(This week)</span>
           )}
         </button>
-        <button onClick={nextWeek} className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-lg text-lg">›</button>
+        <button onClick={nextWeek} className="p-2.5 text-gray-500 hover:bg-gray-100 rounded-lg text-xl">›</button>
       </div>
 
       {/* ── Today + Shift buttons (mobile) ── */}
       <div className="flex items-center gap-2 mb-3 md:hidden">
         <button
           onClick={goToday}
-          className="px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50"
+          className="px-4 py-2 text-sm font-medium text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50"
         >
           Today
         </button>
@@ -1126,7 +1126,7 @@ export default function RosterPage() {
                                   }`}
                                 >
                                   {s.event_id && eventNameMap[s.event_id] && (
-                                    <div className="text-[10px] font-medium text-purple-600 truncate mb-0.5">
+                                    <div className="text-xs font-medium text-purple-600 truncate mb-0.5">
                                       ⚽ {eventNameMap[s.event_id]}
                                     </div>
                                   )}
@@ -1134,7 +1134,7 @@ export default function RosterPage() {
                                     {formatTime(s.scheduled_start)}–{formatTime(s.scheduled_finish)}
                                   </div>
                                   {s.location && (
-                                    <div className="text-[10px] text-gray-500 truncate">{s.location}</div>
+                                    <div className="text-xs text-gray-500 truncate">{s.location}</div>
                                   )}
                                   <StatusBadge status={s.status} />
                                 </button>
@@ -1222,7 +1222,7 @@ export default function RosterPage() {
                                        }`}
                           >
                             {s.event_id && eventNameMap[s.event_id] && (
-                              <div className="text-[11px] font-medium text-purple-600 mb-0.5">
+                              <div className="text-xs font-medium text-purple-600 mb-0.5">
                                 ⚽ {eventNameMap[s.event_id]}
                               </div>
                             )}
@@ -1870,19 +1870,19 @@ export default function RosterPage() {
                                   <div className="text-xs font-medium text-gray-800">{pt?.emoji} {pt?.label}</div>
                                   <div className="grid grid-cols-2 gap-2">
                                     <div>
-                                      <label className="block text-[10px] text-gray-500 mb-0.5">Min Photos</label>
+                                      <label className="block text-xs text-gray-500 mb-0.5">Min Photos</label>
                                       <input type="number" min="1" max="10" value={req.minimum_photos}
                                         onChange={(e) => updateProofReq(req.proof_type, "minimum_photos", parseInt(e.target.value) || 1)}
                                         className="w-full rounded-md border border-gray-300 px-2 py-1 text-xs" />
                                     </div>
                                     <div>
-                                      <label className="block text-[10px] text-gray-500 mb-0.5">Max Photos</label>
+                                      <label className="block text-xs text-gray-500 mb-0.5">Max Photos</label>
                                       <input type="number" min="1" max="20" value={req.maximum_photos}
                                         onChange={(e) => updateProofReq(req.proof_type, "maximum_photos", parseInt(e.target.value) || 6)}
                                         className="w-full rounded-md border border-gray-300 px-2 py-1 text-xs" />
                                     </div>
                                   </div>
-                                  <label className="flex items-center gap-1.5 text-[11px] text-gray-600 cursor-pointer">
+                                  <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
                                     <input type="checkbox" checked={req.allow_finish_without_proof}
                                       onChange={(e) => updateProofReq(req.proof_type, "allow_finish_without_proof", e.target.checked)}
                                       className="rounded border-gray-300 text-blue-600" />

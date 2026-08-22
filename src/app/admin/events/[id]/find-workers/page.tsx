@@ -398,7 +398,7 @@ export default function FindWorkersPage() {
             )}
 
             {mode === "offer" && (
-              <p className="text-[11px] text-gray-400 mt-1.5 text-center">
+              <p className="text-xs text-gray-400 mt-1.5 text-center">
                 Workers can accept or decline. First {remaining} to accept get the shift.
               </p>
             )}
@@ -450,12 +450,12 @@ function WorkerCard({
         <div className="flex items-center gap-2">
           <span className="font-medium text-gray-900 text-sm">{worker.full_name}</span>
           {worker.employment_type && (
-            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${employmentBadgeColor(worker.employment_type)}`}>
+            <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${employmentBadgeColor(worker.employment_type)}`}>
               {employmentLabel(worker.employment_type)}
             </span>
           )}
           {worker.open_to_extra_shifts && (
-            <span className="text-[10px] text-amber-600" title="Open to extra shifts">⭐</span>
+            <span className="text-xs text-amber-600" title="Open to extra shifts">⭐</span>
           )}
         </div>
         <div className="text-xs text-gray-500 mt-0.5">

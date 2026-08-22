@@ -84,7 +84,7 @@ export default function EmployeeNav() {
                 key={link.href}
                 href={link.href}
                 onClick={() => setMenuOpen(false)}
-                className={`block px-3 py-2 text-sm rounded-lg my-0.5 ${
+                className={`block px-3 py-3 text-base rounded-lg my-0.5 ${
                   isActive
                     ? "bg-blue-50 text-blue-700 font-medium"
                     : "text-gray-600 hover:bg-gray-100"
@@ -96,7 +96,7 @@ export default function EmployeeNav() {
           })}
           <button
             onClick={handleLogout}
-            className="block w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg mt-1"
+            className="block w-full text-left px-3 py-3 text-base text-red-600 hover:bg-red-50 rounded-lg mt-1"
           >
             Sign Out
           </button>

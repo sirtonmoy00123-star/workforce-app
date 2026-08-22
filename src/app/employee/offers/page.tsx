@@ -218,22 +218,22 @@ function OfferCard({
           <div className="flex items-center justify-between mb-2">
             <h3 className="font-semibold text-gray-900">{offer.event.name}</h3>
             {isPending && (
-              <span className="text-[10px] font-medium bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+              <span className="text-xs font-medium bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
                 NEW
               </span>
             )}
             {isAccepted && (
-              <span className="text-[10px] font-medium bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+              <span className="text-xs font-medium bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
                 ACCEPTED
               </span>
             )}
             {isDeclined && (
-              <span className="text-[10px] font-medium bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
+              <span className="text-xs font-medium bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
                 DECLINED
               </span>
             )}
             {isExpired && (
-              <span className="text-[10px] font-medium bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
+              <span className="text-xs font-medium bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
                 EXPIRED
               </span>
             )}

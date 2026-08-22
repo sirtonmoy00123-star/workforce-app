@@ -268,7 +268,7 @@ export default function EventDetailPage() {
                   <span className="text-xs font-medium text-gray-500">
                     Sent to {total} worker{total !== 1 ? "s" : ""}
                   </span>
-                  <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
                     offer.status === "FILLED"
                       ? "bg-green-100 text-green-700"
                       : offer.status === "OPEN" || offer.status === "PARTIALLY_FILLED"

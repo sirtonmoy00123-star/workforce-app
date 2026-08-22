@@ -43,6 +43,7 @@ export default function FinishShiftPage() {
   const router = useRouter();
   const shiftId = params.id as string;
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const proofFileRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const [shift, setShift] = useState<ShiftInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -54,6 +55,55 @@ export default function FinishShiftPage() {
 
   // Task proof warning state
   const [proofWarning, setProofWarning] = useState<{ message: string; missingProof: string[] } | null>(null);
+
+  // Inline task proof upload state
+  interface ProofReq { id: string; proof_type: string; instruction: string | null; minimum_photos: number; maximum_photos: number; is_required: boolean; }
+  interface ProofSub { id: string; requirement_id: string; proof_type: string; photo_url: string | null; status: string; }
+  const [proofRequirements, setProofRequirements] = useState<ProofReq[]>([]);
+  const [proofSubmissions, setProofSubmissions] = useState<ProofSub[]>([]);
+  const [proofUploading, setProofUploading] = useState<string | null>(null);
+  const [proofUploadError, setProofUploadError] = useState("");
+
+  const PROOF_LABELS: Record<string, { label: string; emoji: string }> = {
+    BEFORE: { label: "Before Work", emoji: "📷" },
+    DURING: { label: "During Work", emoji: "🔄" },
+    AFTER: { label: "After Work", emoji: "✅" },
+    OTHER: { label: "Other", emoji: "📎" },
+  };
+
+  async function loadProofData() {
+    try {
+      const [reqRes, subRes] = await Promise.all([
+        fetch(`/api/task-proof/requirements?shiftId=${shiftId}`),
+        fetch(`/api/task-proof/submissions?shiftId=${shiftId}`),
+      ]);
+      const reqs = await reqRes.json();
+      const subs = await subRes.json();
+      if (Array.isArray(reqs)) setProofRequirements(reqs);
+      if (Array.isArray(subs)) setProofSubmissions(subs);
+    } catch { /* ignore */ }
+  }
+
+  async function handleProofUpload(requirementId: string, proofType: string, file: File) {
+    setProofUploading(requirementId);
+    setProofUploadError("");
+    try {
+      const formData = new FormData();
+      formData.append("photo", file);
+      formData.append("shiftId", shiftId);
+      formData.append("requirementId", requirementId);
+      formData.append("proofType", proofType);
+      const res = await fetch("/api/task-proof/submit", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) { setProofUploadError(data.error || "Upload failed."); }
+      else { await loadProofData(); }
+    } catch { setProofUploadError("Upload failed. Please try again."); }
+    setProofUploading(null);
+  }
+
+  function getSubsForReq(reqId: string): ProofSub[] {
+    return proofSubmissions.filter((s) => s.requirement_id === reqId && s.status !== "REPLACED");
+  }
 
   // Form state
   const [photo, setPhoto] = useState<File | null>(null);
@@ -129,6 +179,8 @@ export default function FinishShiftPage() {
           message: data.message,
           missingProof: data.missingProof || [],
         });
+        // Load proof requirements so the employee can upload inline
+        loadProofData();
         setSubmitting(false);
         return;
       }
@@ -318,29 +370,80 @@ export default function FinishShiftPage() {
             </div>
           )}
 
-          {/* Task Proof Warning */}
+          {/* Task Proof Warning + Inline Upload */}
           {proofWarning && (
             <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-4">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-amber-600 text-lg">⚠️</span>
                 <span className="font-bold text-amber-800 text-sm">Task Proof Missing</span>
               </div>
-              <p className="text-sm text-amber-700 mb-2">{proofWarning.message}</p>
-              {proofWarning.missingProof.length > 0 && (
+              <p className="text-sm text-amber-700 mb-3">{proofWarning.message}</p>
+
+              {/* Inline proof upload cards */}
+              {proofRequirements.length > 0 && (
+                <div className="space-y-2 mb-3">
+                  {proofUploadError && (
+                    <div className="bg-red-50 text-red-700 text-xs rounded-lg p-2 border border-red-200">{proofUploadError}</div>
+                  )}
+                  {proofRequirements.map((req) => {
+                    const pt = PROOF_LABELS[req.proof_type] || { label: req.proof_type, emoji: "📎" };
+                    const subs = getSubsForReq(req.id);
+                    const isComplete = subs.length >= req.minimum_photos;
+                    const canUpload = subs.length < req.maximum_photos;
+                    const isUploading = proofUploading === req.id;
+
+                    return (
+                      <div key={req.id} className={`rounded-lg border p-3 ${isComplete ? "border-green-300 bg-green-50" : "border-amber-200 bg-white"}`}>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium text-gray-900">
+                            {pt.emoji} {pt.label}
+                          </span>
+                          {isComplete ? (
+                            <span className="text-xs font-medium text-green-600">✓ {subs.length}/{req.minimum_photos}</span>
+                          ) : (
+                            <span className="text-xs font-medium text-amber-600">{subs.length}/{req.minimum_photos} needed</span>
+                          )}
+                        </div>
+                        {canUpload && (
+                          <>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              capture="environment"
+                              className="hidden"
+                              ref={(el) => { proofFileRefs.current[req.id] = el; }}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleProofUpload(req.id, req.proof_type, file);
+                                e.target.value = "";
+                              }}
+                            />
+                            <button
+                              type="button"
+                              disabled={isUploading}
+                              onClick={() => proofFileRefs.current[req.id]?.click()}
+                              className="mt-2 w-full bg-blue-600 text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50"
+                            >
+                              {isUploading ? "Uploading…" : `📷 Take ${pt.label} Photo`}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Missing proof list (when requirements haven't loaded yet) */}
+              {proofRequirements.length === 0 && proofWarning.missingProof.length > 0 && (
                 <ul className="text-xs text-amber-600 mb-3 space-y-0.5">
                   {proofWarning.missingProof.map((m, i) => (
                     <li key={i}>• {m}</li>
                   ))}
                 </ul>
               )}
+
               <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => router.push(`/employee/shifts/${shiftId}`)}
-                  className="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-medium"
-                >
-                  📷 Add Photo
-                </button>
                 <button
                   type="button"
                   onClick={(e) => handleSubmit(e as unknown as React.FormEvent, true)}
@@ -348,6 +451,17 @@ export default function FinishShiftPage() {
                   className="flex-1 bg-amber-600 text-white rounded-lg py-2.5 text-sm font-medium disabled:opacity-50"
                 >
                   {submitting ? "Finishing…" : "Finish Anyway"}
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    setProofWarning(null);
+                    handleSubmit(e as unknown as React.FormEvent, false);
+                  }}
+                  disabled={submitting}
+                  className="flex-1 bg-green-600 text-white rounded-lg py-2.5 text-sm font-medium disabled:opacity-50"
+                >
+                  {submitting ? "Checking…" : "✓ Retry Finish"}
                 </button>
               </div>
             </div>

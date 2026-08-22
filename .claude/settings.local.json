@@ -38,7 +38,9 @@
       "PowerShell(git add src/app/admin/dashboard/page.tsx src/app/admin/events/[id]/page.tsx src/app/admin/events/[id]/edit/page.tsx src/app/employee/home/page.tsx src/app/employee/shifts/page.tsx)",
       "Bash(git commit -m 'Event Staffing Phases 5-9: edit event, dashboards, employee UX, security audit *)",
       "Bash(git commit -m 'Task Proof Phase 2: Admin shift creation with proof config *)",
-      "Bash(git commit -m 'Task Proof Phase 3: Employee photo upload *)"
+      "Bash(git commit -m 'Task Proof Phase 3: Employee photo upload *)",
+      "Bash(git commit -m 'Task Proof Phases 4-10: Finish validation, admin gallery, timesheet review, corrections, templates, security *)",
+      "Bash(git commit -m 'Add Task Proof config to roster inline shift creation *)"
     ]
   }
 }

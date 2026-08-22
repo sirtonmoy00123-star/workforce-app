@@ -92,6 +92,31 @@ interface CopyPreviewShift {
 
 type RecurrenceType = "NONE" | "NEXT_WEEK" | "WEEKLY_END_OF_MONTH" | "WEEKLY_CUSTOM_END";
 
+type ProofType = "BEFORE" | "DURING" | "AFTER" | "OTHER";
+
+interface ProofRequirement {
+  proof_type: ProofType;
+  instruction: string;
+  minimum_photos: number;
+  maximum_photos: number;
+  is_required: boolean;
+  allow_employee_note: boolean;
+  allow_finish_without_proof: boolean;
+}
+
+interface ProofTemplate {
+  id: string;
+  name: string;
+  task_proof_template_items: ProofRequirement[];
+}
+
+const PROOF_TYPES: { value: ProofType; label: string; emoji: string }[] = [
+  { value: "BEFORE", label: "Before Work", emoji: "📷" },
+  { value: "DURING", label: "During Work", emoji: "🔄" },
+  { value: "AFTER", label: "After Work", emoji: "✅" },
+  { value: "OTHER", label: "Other", emoji: "📎" },
+];
+
 // Change reason presets
 const CHANGE_REASONS = [
   "Business requirement changed",
@@ -229,6 +254,15 @@ export default function RosterPage() {
   const [createError, setCreateError] = useState("");
   const [createSuccess, setCreateSuccess] = useState("");
 
+  // ── Task Proof state for shift creation ──
+  const [taskProofEnabled, setTaskProofEnabled] = useState(false);
+  const [proofRequirements, setProofRequirements] = useState<ProofRequirement[]>([
+    { proof_type: "BEFORE", instruction: "", minimum_photos: 1, maximum_photos: 6, is_required: true, allow_employee_note: true, allow_finish_without_proof: true },
+    { proof_type: "AFTER", instruction: "", minimum_photos: 1, maximum_photos: 6, is_required: true, allow_employee_note: true, allow_finish_without_proof: true },
+  ]);
+  const [selectedProofTypes, setSelectedProofTypes] = useState<Set<ProofType>>(new Set(["BEFORE", "AFTER"]));
+  const [proofTemplates, setProofTemplates] = useState<ProofTemplate[]>([]);
+
   // ── Copy week state ──
   const [copyPreview, setCopyPreview] = useState<CopyPreviewShift[] | null>(null);
   const [copyTotal, setCopyTotal] = useState(0);
@@ -279,6 +313,10 @@ export default function RosterPage() {
       if (Array.isArray(eventsData)) setUpcomingEvents(eventsData);
       setLoading(false);
     });
+    // Fetch proof templates (once)
+    fetch("/api/task-proof/templates").then((r) => r.json()).then((data) => {
+      if (Array.isArray(data)) setProofTemplates(data);
+    }).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekStart]);
 
@@ -315,6 +353,12 @@ export default function RosterPage() {
     setCreateSuccess("");
     setCopyError("");
     setCopySuccess("");
+    setTaskProofEnabled(false);
+    setSelectedProofTypes(new Set(["BEFORE", "AFTER"]));
+    setProofRequirements([
+      { proof_type: "BEFORE", instruction: "", minimum_photos: 1, maximum_photos: 6, is_required: true, allow_employee_note: true, allow_finish_without_proof: true },
+      { proof_type: "AFTER", instruction: "", minimum_photos: 1, maximum_photos: 6, is_required: true, allow_employee_note: true, allow_finish_without_proof: true },
+    ]);
   }
 
   // ── Open shift detail ──
@@ -532,6 +576,66 @@ export default function RosterPage() {
     setSheetContent("create3");
   }
 
+  // ── Task Proof helpers ──
+  function toggleProofType(type: ProofType) {
+    setSelectedProofTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) {
+        next.delete(type);
+        setProofRequirements((reqs) => reqs.filter((r) => r.proof_type !== type));
+      } else {
+        next.add(type);
+        setProofRequirements((reqs) => [
+          ...reqs,
+          { proof_type: type, instruction: "", minimum_photos: 1, maximum_photos: 6, is_required: true, allow_employee_note: true, allow_finish_without_proof: true },
+        ]);
+      }
+      return next;
+    });
+  }
+
+  function applyProofTemplate(template: ProofTemplate) {
+    const items = template.task_proof_template_items || [];
+    const types = new Set<ProofType>();
+    const reqs: ProofRequirement[] = items.map((item) => {
+      types.add(item.proof_type as ProofType);
+      return {
+        proof_type: item.proof_type as ProofType,
+        instruction: item.instruction || "",
+        minimum_photos: item.minimum_photos || 1,
+        maximum_photos: item.maximum_photos || 6,
+        is_required: item.is_required !== false,
+        allow_employee_note: item.allow_employee_note !== false,
+        allow_finish_without_proof: item.allow_finish_without_proof !== false,
+      };
+    });
+    setSelectedProofTypes(types);
+    setProofRequirements(reqs);
+  }
+
+  function updateProofReq(type: ProofType, field: string, value: number | boolean) {
+    setProofRequirements((prev) =>
+      prev.map((r) => r.proof_type === type ? { ...r, [field]: value } : r)
+    );
+  }
+
+  async function saveProofRequirements(shiftIds: string[]) {
+    const activeReqs = proofRequirements.filter((r) => selectedProofTypes.has(r.proof_type));
+    if (activeReqs.length === 0) return;
+    await Promise.all(
+      shiftIds.map((shiftId) =>
+        fetch("/api/task-proof/requirements", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            shiftId,
+            requirements: activeReqs.map((r) => ({ ...r, instruction: r.instruction || null })),
+          }),
+        })
+      )
+    );
+  }
+
   async function handlePublishShift() {
     setCreateError("");
     setCreateLoading(true);
@@ -558,6 +662,10 @@ export default function RosterPage() {
           setCreateLoading(false);
           return;
         }
+        // Save task proof requirements for the created shift
+        if (taskProofEnabled && data.shift?.id) {
+          await saveProofRequirements([data.shift.id]);
+        }
       } else {
         // Multi-employee or recurring
         const res = await fetch("/api/shifts/recurring", {
@@ -582,6 +690,11 @@ export default function RosterPage() {
           setCreateError(data.error || "Failed to create shifts.");
           setCreateLoading(false);
           return;
+        }
+        // Save task proof requirements for all created shifts
+        if (taskProofEnabled && Array.isArray(data.shifts) && data.shifts.length > 0) {
+          const shiftIds = data.shifts.map((s: { id: string }) => s.id);
+          await saveProofRequirements(shiftIds);
         }
       }
 
@@ -1687,6 +1800,99 @@ export default function RosterPage() {
                           ) : null;
                         })}
                       </div>
+                    </div>
+
+                    {/* Task Proof */}
+                    <div className="mb-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">📷 Task Proof</div>
+                        <button
+                          type="button"
+                          onClick={() => setTaskProofEnabled(!taskProofEnabled)}
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                            taskProofEnabled ? "bg-blue-600" : "bg-gray-300"
+                          }`}
+                        >
+                          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                            taskProofEnabled ? "translate-x-4" : "translate-x-0.5"
+                          }`} />
+                        </button>
+                      </div>
+
+                      {taskProofEnabled && (
+                        <div className="space-y-3 bg-gray-50 rounded-xl p-3">
+                          {/* Template selector */}
+                          {proofTemplates.length > 0 && (
+                            <select
+                              onChange={(e) => {
+                                const tpl = proofTemplates.find((t) => t.id === e.target.value);
+                                if (tpl) applyProofTemplate(tpl);
+                              }}
+                              defaultValue=""
+                              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                              <option value="">Custom configuration</option>
+                              {proofTemplates.map((tpl) => (
+                                <option key={tpl.id} value={tpl.id}>{tpl.name}</option>
+                              ))}
+                            </select>
+                          )}
+
+                          {/* Proof type checkboxes */}
+                          <div className="grid grid-cols-2 gap-1.5">
+                            {PROOF_TYPES.map((pt) => (
+                              <label
+                                key={pt.value}
+                                className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer text-xs transition-colors ${
+                                  selectedProofTypes.has(pt.value)
+                                    ? "border-blue-500 bg-blue-50"
+                                    : "border-gray-200 hover:border-gray-300"
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selectedProofTypes.has(pt.value)}
+                                  onChange={() => toggleProofType(pt.value)}
+                                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                />
+                                <span>{pt.emoji} {pt.label}</span>
+                              </label>
+                            ))}
+                          </div>
+
+                          {/* Per-type config */}
+                          {proofRequirements
+                            .filter((r) => selectedProofTypes.has(r.proof_type))
+                            .map((req) => {
+                              const pt = PROOF_TYPES.find((p) => p.value === req.proof_type);
+                              return (
+                                <div key={req.proof_type} className="bg-white rounded-lg p-2.5 space-y-1.5">
+                                  <div className="text-xs font-medium text-gray-800">{pt?.emoji} {pt?.label}</div>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                      <label className="block text-[10px] text-gray-500 mb-0.5">Min Photos</label>
+                                      <input type="number" min="1" max="10" value={req.minimum_photos}
+                                        onChange={(e) => updateProofReq(req.proof_type, "minimum_photos", parseInt(e.target.value) || 1)}
+                                        className="w-full rounded-md border border-gray-300 px-2 py-1 text-xs" />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[10px] text-gray-500 mb-0.5">Max Photos</label>
+                                      <input type="number" min="1" max="20" value={req.maximum_photos}
+                                        onChange={(e) => updateProofReq(req.proof_type, "maximum_photos", parseInt(e.target.value) || 6)}
+                                        className="w-full rounded-md border border-gray-300 px-2 py-1 text-xs" />
+                                    </div>
+                                  </div>
+                                  <label className="flex items-center gap-1.5 text-[11px] text-gray-600 cursor-pointer">
+                                    <input type="checkbox" checked={req.allow_finish_without_proof}
+                                      onChange={(e) => updateProofReq(req.proof_type, "allow_finish_without_proof", e.target.checked)}
+                                      className="rounded border-gray-300 text-blue-600" />
+                                    Allow finish without this proof
+                                  </label>
+                                </div>
+                              );
+                            })}
+                        </div>
+                      )}
                     </div>
 
                     {/* Repeat settings */}

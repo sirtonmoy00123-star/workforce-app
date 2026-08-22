@@ -49,6 +49,52 @@ export async function GET(request: Request) {
   }
 }
 
+export async function DELETE(request: Request) {
+  try {
+    const ctx = await requireAdmin();
+    const url = new URL(request.url);
+    const shiftId = url.searchParams.get("shiftId");
+
+    if (!shiftId) {
+      return NextResponse.json({ error: "shiftId is required." }, { status: 400 });
+    }
+
+    const adminClient = createAdminClient();
+
+    // Verify shift belongs to same business
+    const { data: shift } = await adminClient
+      .from("shifts")
+      .select("id, business_id")
+      .eq("id", shiftId)
+      .single();
+
+    if (!shift || shift.business_id !== ctx.businessId) {
+      return NextResponse.json({ error: "Shift not found." }, { status: 404 });
+    }
+
+    // Check for existing proof submissions — don't delete reqs that have submissions
+    const { data: submissions } = await adminClient
+      .from("task_proof_submissions")
+      .select("id")
+      .eq("shift_id", shiftId)
+      .limit(1);
+
+    if (submissions && submissions.length > 0) {
+      return NextResponse.json({ error: "Cannot remove proof requirements — photos already submitted." }, { status: 400 });
+    }
+
+    await adminClient
+      .from("task_proof_requirements")
+      .delete()
+      .eq("shift_id", shiftId)
+      .eq("business_id", ctx.businessId);
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    return handleTenantError(err);
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const ctx = await requireAdmin();

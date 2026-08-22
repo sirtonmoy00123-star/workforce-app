@@ -394,7 +394,7 @@ async function handlePreviewEdit(shiftId: string, body: any, shift: any, adminCl
 // ── Save the edit ──
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function handleUpdateShift(shiftId: string, body: any, shift: any, ctx: any, adminClient: any) {
-  const { date, startTime, endTime, location, instructions, changeReason, changeNotes, overrideReason, timezoneOffsetMinutes } = body;
+  const { date, startTime, endTime, location, instructions, changeReason, changeNotes, overrideReason, timezoneOffsetMinutes, requireOdometer } = body;
 
   if (!date || !startTime || !endTime) {
     return NextResponse.json({ error: "Date, start time, and end time are required." }, { status: 400 });
@@ -514,6 +514,7 @@ async function handleUpdateShift(shiftId: string, body: any, shift: any, ctx: an
       status: newStatus,
       updated_by: ctx.userId,
       last_change_reason: changeReason,
+      require_odometer: typeof requireOdometer === "boolean" ? requireOdometer : null,
     })
     .eq("id", shiftId);
 

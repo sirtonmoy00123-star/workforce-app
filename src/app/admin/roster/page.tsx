@@ -17,6 +17,7 @@ interface Shift {
   status: string;
   recurring_group_id: string | null;
   event_id: string | null;
+  require_odometer: boolean | null;
 }
 
 interface UpcomingEvent {
@@ -227,6 +228,10 @@ export default function RosterPage() {
   const [editEndTime, setEditEndTime] = useState("");
   const [editLocation, setEditLocation] = useState("");
   const [editInstructions, setEditInstructions] = useState("");
+  const [editOdometerEnabled, setEditOdometerEnabled] = useState(false);
+  const [editTaskProofEnabled, setEditTaskProofEnabled] = useState(false);
+  const [editProofRequirements, setEditProofRequirements] = useState<ProofRequirement[]>([]);
+  const [editSelectedProofTypes, setEditSelectedProofTypes] = useState<Set<ProofType>>(new Set());
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [reviewError, setReviewError] = useState("");
   const [changeReason, setChangeReason] = useState("");
@@ -394,7 +399,7 @@ export default function RosterPage() {
   }
 
   // ── Edit shift ──
-  function startEditing() {
+  async function startEditing() {
     if (!selectedShift) return;
     if (selectedShift.status === "completed") {
       setReviewError("This shift has been completed. Use Timesheet Correction to change actual working records.");
@@ -405,6 +410,41 @@ export default function RosterPage() {
     setEditEndTime(extractTime(selectedShift.scheduled_finish));
     setEditLocation(selectedShift.location || "");
     setEditInstructions(selectedShift.instructions || "");
+    // Load odometer setting
+    setEditOdometerEnabled(selectedShift.require_odometer === true);
+    // Load existing task proof requirements
+    try {
+      const res = await fetch(`/api/task-proof/requirements?shiftId=${selectedShift.id}`);
+      const reqs = await res.json();
+      if (Array.isArray(reqs) && reqs.length > 0) {
+        setEditTaskProofEnabled(true);
+        const types = new Set<ProofType>(reqs.map((r: { proof_type: string }) => r.proof_type as ProofType));
+        setEditSelectedProofTypes(types);
+        setEditProofRequirements(reqs.map((r: { proof_type: string; instruction: string | null; minimum_photos: number; maximum_photos: number; is_required: boolean; allow_employee_note: boolean; allow_finish_without_proof: boolean }) => ({
+          proof_type: r.proof_type as ProofType,
+          instruction: r.instruction || "",
+          minimum_photos: r.minimum_photos || 1,
+          maximum_photos: r.maximum_photos || 6,
+          is_required: r.is_required !== false,
+          allow_employee_note: r.allow_employee_note !== false,
+          allow_finish_without_proof: r.allow_finish_without_proof !== false,
+        })));
+      } else {
+        setEditTaskProofEnabled(false);
+        setEditSelectedProofTypes(new Set(["BEFORE", "AFTER"]));
+        setEditProofRequirements([
+          { proof_type: "BEFORE", instruction: "", minimum_photos: 1, maximum_photos: 6, is_required: true, allow_employee_note: true, allow_finish_without_proof: true },
+          { proof_type: "AFTER", instruction: "", minimum_photos: 1, maximum_photos: 6, is_required: true, allow_employee_note: true, allow_finish_without_proof: true },
+        ]);
+      }
+    } catch {
+      setEditTaskProofEnabled(false);
+      setEditSelectedProofTypes(new Set(["BEFORE", "AFTER"]));
+      setEditProofRequirements([
+        { proof_type: "BEFORE", instruction: "", minimum_photos: 1, maximum_photos: 6, is_required: true, allow_employee_note: true, allow_finish_without_proof: true },
+        { proof_type: "AFTER", instruction: "", minimum_photos: 1, maximum_photos: 6, is_required: true, allow_employee_note: true, allow_finish_without_proof: true },
+      ]);
+    }
     setSheetContent("edit");
     setReviewError("");
     setSaveSuccess("");
@@ -519,6 +559,7 @@ export default function RosterPage() {
           changeNotes,
           overrideReason: overrideReason || undefined,
           timezoneOffsetMinutes: new Date().getTimezoneOffset(),
+          requireOdometer: editOdometerEnabled || undefined,
         }),
       });
       const data = await res.json();
@@ -526,6 +567,26 @@ export default function RosterPage() {
         setSaveError(data.error || "Failed to update shift.");
         setSaving(false);
         return;
+      }
+
+      // Save/update task proof requirements
+      if (editTaskProofEnabled) {
+        const activeReqs = editProofRequirements.filter((r) => editSelectedProofTypes.has(r.proof_type));
+        if (activeReqs.length > 0) {
+          await fetch("/api/task-proof/requirements", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              shiftId: selectedShift.id,
+              requirements: activeReqs.map((r) => ({ ...r, instruction: r.instruction || null })),
+            }),
+          });
+        }
+      } else {
+        // Task proof disabled — remove any existing requirements
+        await fetch(`/api/task-proof/requirements?shiftId=${selectedShift.id}`, {
+          method: "DELETE",
+        }).catch(() => { /* ok if nothing to delete */ });
       }
 
       // Update local state
@@ -540,6 +601,7 @@ export default function RosterPage() {
                 location: editLocation || null,
                 instructions: editInstructions || null,
                 status: data.status,
+                require_odometer: editOdometerEnabled || null,
               }
             : s
         )
@@ -557,6 +619,7 @@ export default function RosterPage() {
               location: editLocation || null,
               instructions: editInstructions || null,
               status: data.status,
+              require_odometer: editOdometerEnabled || null,
             }
           : null
       );
@@ -666,6 +729,30 @@ export default function RosterPage() {
 
   function updateProofReq(type: ProofType, field: string, value: number | boolean) {
     setProofRequirements((prev) =>
+      prev.map((r) => r.proof_type === type ? { ...r, [field]: value } : r)
+    );
+  }
+
+  // ── Edit proof helpers (for edit shift modal) ──
+  function toggleEditProofType(type: ProofType) {
+    setEditSelectedProofTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) {
+        next.delete(type);
+        setEditProofRequirements((reqs) => reqs.filter((r) => r.proof_type !== type));
+      } else {
+        next.add(type);
+        setEditProofRequirements((reqs) => [
+          ...reqs,
+          { proof_type: type, instruction: "", minimum_photos: 1, maximum_photos: 6, is_required: true, allow_employee_note: true, allow_finish_without_proof: true },
+        ]);
+      }
+      return next;
+    });
+  }
+
+  function updateEditProofReq(type: ProofType, field: string, value: number | boolean) {
+    setEditProofRequirements((prev) =>
       prev.map((r) => r.proof_type === type ? { ...r, [field]: value } : r)
     );
   }
@@ -1594,6 +1681,108 @@ export default function RosterPage() {
                         <label className="block text-sm font-medium text-gray-700 mb-1">Instructions</label>
                         <textarea value={editInstructions} onChange={(e) => setEditInstructions(e.target.value)} rows={2}
                           className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      </div>
+                    </div>
+
+                    {/* ── Shift Evidence Options ── */}
+                    <div className="mt-4 space-y-3">
+                      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Shift Evidence Options</div>
+
+                      {/* Odometer Toggle */}
+                      <div className="bg-gray-50 rounded-xl p-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="text-xs font-semibold text-gray-600">🚗 Odometer</div>
+                          <button
+                            type="button"
+                            onClick={() => setEditOdometerEnabled(!editOdometerEnabled)}
+                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                              editOdometerEnabled ? "bg-blue-600" : "bg-gray-300"
+                            }`}
+                          >
+                            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                              editOdometerEnabled ? "translate-x-4" : "translate-x-0.5"
+                            }`} />
+                          </button>
+                        </div>
+                        {editOdometerEnabled && (
+                          <p className="text-xs text-gray-500">Employee must upload odometer photos at shift start &amp; finish.</p>
+                        )}
+                      </div>
+
+                      {/* Task Proof Toggle */}
+                      <div className="bg-gray-50 rounded-xl p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="text-xs font-semibold text-gray-600">📷 Task Proof</div>
+                          <button
+                            type="button"
+                            onClick={() => setEditTaskProofEnabled(!editTaskProofEnabled)}
+                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                              editTaskProofEnabled ? "bg-blue-600" : "bg-gray-300"
+                            }`}
+                          >
+                            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                              editTaskProofEnabled ? "translate-x-4" : "translate-x-0.5"
+                            }`} />
+                          </button>
+                        </div>
+
+                        {editTaskProofEnabled && (
+                          <div className="space-y-3">
+                            {/* Proof type checkboxes */}
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {PROOF_TYPES.map((pt) => (
+                                <label
+                                  key={pt.value}
+                                  className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer text-xs transition-colors ${
+                                    editSelectedProofTypes.has(pt.value)
+                                      ? "border-blue-500 bg-blue-50"
+                                      : "border-gray-200 hover:border-gray-300"
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={editSelectedProofTypes.has(pt.value)}
+                                    onChange={() => toggleEditProofType(pt.value)}
+                                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                  />
+                                  <span>{pt.emoji} {pt.label}</span>
+                                </label>
+                              ))}
+                            </div>
+
+                            {/* Per-type config */}
+                            {editProofRequirements
+                              .filter((r) => editSelectedProofTypes.has(r.proof_type))
+                              .map((req) => {
+                                const pt = PROOF_TYPES.find((p) => p.value === req.proof_type);
+                                return (
+                                  <div key={req.proof_type} className="bg-white rounded-lg p-2.5 space-y-1.5">
+                                    <div className="text-xs font-medium text-gray-800">{pt?.emoji} {pt?.label}</div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <div>
+                                        <label className="block text-xs text-gray-500 mb-0.5">Min Photos</label>
+                                        <input type="number" min="1" max="10" value={req.minimum_photos}
+                                          onChange={(e) => updateEditProofReq(req.proof_type, "minimum_photos", parseInt(e.target.value) || 1)}
+                                          className="w-full rounded-md border border-gray-300 px-2 py-1 text-xs" />
+                                      </div>
+                                      <div>
+                                        <label className="block text-xs text-gray-500 mb-0.5">Max Photos</label>
+                                        <input type="number" min="1" max="20" value={req.maximum_photos}
+                                          onChange={(e) => updateEditProofReq(req.proof_type, "maximum_photos", parseInt(e.target.value) || 6)}
+                                          className="w-full rounded-md border border-gray-300 px-2 py-1 text-xs" />
+                                      </div>
+                                    </div>
+                                    <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                                      <input type="checkbox" checked={req.allow_finish_without_proof}
+                                        onChange={(e) => updateEditProofReq(req.proof_type, "allow_finish_without_proof", e.target.checked)}
+                                        className="rounded border-gray-300 text-blue-600" />
+                                      Allow finish without this proof
+                                    </label>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        )}
                       </div>
                     </div>
 

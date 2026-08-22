@@ -43,7 +43,9 @@
       "Bash(git commit -m 'Add Task Proof config to roster inline shift creation *)",
       "Bash(git commit -m 'Shift Evidence Options: per-employee Odometer & Task Proof toggles *)",
       "mcp__claude-in-chrome__tabs_context_mcp",
-      "Bash(git commit -m 'Fix shift time timezone bug: store timestamps with client offset *)"
+      "Bash(git commit -m 'Fix shift time timezone bug: store timestamps with client offset *)",
+      "Bash(git commit -m 'Per-shift Odometer toggle alongside Task Proof *)",
+      "Bash(git commit -m 'Fix task proof upload on finish-shift: inline upload instead of navigation *)"
     ]
   }
 }

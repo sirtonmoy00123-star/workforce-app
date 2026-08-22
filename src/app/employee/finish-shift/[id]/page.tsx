@@ -186,9 +186,10 @@ export default function FinishShiftPage() {
       }
 
       if (!res.ok) {
-        // Handle blocked by proof requirement
+        // Handle blocked by proof requirement — load inline upload so employee can add photos
         if (data.proofBlocked) {
           setError(data.error);
+          loadProofData();
         } else {
           setError(data.error || "Failed to finish shift.");
         }
@@ -370,7 +371,82 @@ export default function FinishShiftPage() {
             </div>
           )}
 
-          {/* Task Proof Warning + Inline Upload */}
+          {/* Task Proof Blocked — hard requirement, must upload before finishing */}
+          {!proofWarning && proofRequirements.length > 0 && error && (
+            <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-red-600 text-lg">📷</span>
+                <span className="font-bold text-red-800 text-sm">Upload Required Proof</span>
+              </div>
+              <p className="text-sm text-red-700 mb-3">Upload the required photos below, then try finishing again.</p>
+
+              <div className="space-y-2 mb-3">
+                {proofUploadError && (
+                  <div className="bg-red-50 text-red-700 text-xs rounded-lg p-2 border border-red-200">{proofUploadError}</div>
+                )}
+                {proofRequirements.map((req) => {
+                  const pt = PROOF_LABELS[req.proof_type] || { label: req.proof_type, emoji: "📎" };
+                  const subs = getSubsForReq(req.id);
+                  const isComplete = subs.length >= req.minimum_photos;
+                  const canUpload = subs.length < req.maximum_photos;
+                  const isUploading = proofUploading === req.id;
+
+                  return (
+                    <div key={req.id} className={`rounded-lg border p-3 ${isComplete ? "border-green-300 bg-green-50" : "border-red-200 bg-white"}`}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-gray-900">
+                          {pt.emoji} {pt.label}
+                        </span>
+                        {isComplete ? (
+                          <span className="text-xs font-medium text-green-600">✓ {subs.length}/{req.minimum_photos}</span>
+                        ) : (
+                          <span className="text-xs font-medium text-red-600">{subs.length}/{req.minimum_photos} needed</span>
+                        )}
+                      </div>
+                      {canUpload && (
+                        <>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            capture="environment"
+                            className="hidden"
+                            ref={(el) => { proofFileRefs.current[req.id] = el; }}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleProofUpload(req.id, req.proof_type, file);
+                              e.target.value = "";
+                            }}
+                          />
+                          <button
+                            type="button"
+                            disabled={isUploading}
+                            onClick={() => proofFileRefs.current[req.id]?.click()}
+                            className="mt-2 w-full bg-blue-600 text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50"
+                          >
+                            {isUploading ? "Uploading…" : `📷 Take ${pt.label} Photo`}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  setError("");
+                  handleSubmit(e as unknown as React.FormEvent, false);
+                }}
+                disabled={submitting}
+                className="w-full bg-green-600 text-white rounded-lg py-2.5 text-sm font-medium disabled:opacity-50"
+              >
+                {submitting ? "Checking…" : "✓ Retry Finish"}
+              </button>
+            </div>
+          )}
+
+          {/* Task Proof Warning + Inline Upload (soft warning — can finish anyway) */}
           {proofWarning && (
             <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-4">
               <div className="flex items-center gap-2 mb-2">
@@ -467,8 +543,8 @@ export default function FinishShiftPage() {
             </div>
           )}
 
-          {/* Submit */}
-          {!proofWarning && (
+          {/* Submit — hide when proof upload UI is active */}
+          {!proofWarning && !(proofRequirements.length > 0 && error) && (
             <button
               type="submit"
               disabled={submitting || !canSubmit}

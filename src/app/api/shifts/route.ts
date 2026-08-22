@@ -44,7 +44,7 @@ export async function POST(request: Request) {
     const ctx = await requireAdmin();
 
     const body = await request.json();
-    const { employeeId, date, startTime, endTime, location, instructions, overrideAvailability } = body;
+    const { employeeId, date, startTime, endTime, location, instructions, overrideAvailability, timezoneOffsetMinutes } = body;
 
     if (!employeeId || !date || !startTime || !endTime) {
       return NextResponse.json(
@@ -71,11 +71,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Employee is not active." }, { status: 400 });
     }
 
-    // Build full timestamps with timezone offset so they're stored correctly.
-    const startDate = new Date(`${date}T${startTime}:00`);
-    const endDate = new Date(`${date}T${endTime}:00`);
-    const scheduledStart = startDate.toISOString();
-    const scheduledFinish = endDate.toISOString();
+    // Build full timestamps with the client's timezone offset so the stored
+    // UTC value matches the wall-clock time the admin intended.
+    // getTimezoneOffset() returns negative for east-of-UTC, e.g. -600 for UTC+10.
+    const offsetMin = typeof timezoneOffsetMinutes === "number" ? timezoneOffsetMinutes : 0;
+    const sign = offsetMin <= 0 ? "+" : "-";
+    const absMin = Math.abs(offsetMin);
+    const offH = String(Math.floor(absMin / 60)).padStart(2, "0");
+    const offM = String(absMin % 60).padStart(2, "0");
+    const tzSuffix = `${sign}${offH}:${offM}`;
+
+    const scheduledStart = new Date(`${date}T${startTime}:00${tzSuffix}`).toISOString();
+    const scheduledFinish = new Date(`${date}T${endTime}:00${tzSuffix}`).toISOString();
 
     // 2. Check for overlapping shifts
     const { data: overlapping } = await adminClient

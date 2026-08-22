@@ -515,6 +515,7 @@ export default function RosterPage() {
           changeReason: changeReason === "Other" ? changeNotes || "Other" : changeReason,
           changeNotes,
           overrideReason: overrideReason || undefined,
+          timezoneOffsetMinutes: new Date().getTimezoneOffset(),
         }),
       });
       const data = await res.json();
@@ -701,6 +702,7 @@ export default function RosterPage() {
             location: createLocation,
             instructions: createInstructions,
             overrideAvailability: true,
+            timezoneOffsetMinutes: new Date().getTimezoneOffset(),
           }),
         });
         const data = await res.json();
@@ -730,6 +732,7 @@ export default function RosterPage() {
             customEndDate: recurrenceType === "WEEKLY_CUSTOM_END" ? customEndDate : undefined,
             assignments: null,
             saveAsDraft: false,
+            timezoneOffsetMinutes: new Date().getTimezoneOffset(),
           }),
         });
         const data = await res.json();
@@ -874,6 +877,7 @@ export default function RosterPage() {
           startTime: findStartTime,
           endTime: findEndTime,
           overrideAvailability: true,
+          timezoneOffsetMinutes: new Date().getTimezoneOffset(),
         }),
       });
       const data = await res.json();

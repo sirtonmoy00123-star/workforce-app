@@ -323,6 +323,7 @@ export default function NewShiftPage() {
             location: form.location,
             instructions: form.instructions,
             overrideAvailability: true, // they already confirmed in this flow
+            timezoneOffsetMinutes: new Date().getTimezoneOffset(),
           }),
         });
 
@@ -371,6 +372,7 @@ export default function NewShiftPage() {
           customEndDate: recurrenceType === "WEEKLY_CUSTOM_END" ? customEndDate : undefined,
           assignments: preview?.employees || null,
           saveAsDraft,
+          timezoneOffsetMinutes: new Date().getTimezoneOffset(),
         }),
       });
 

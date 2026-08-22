@@ -394,7 +394,7 @@ async function handlePreviewEdit(shiftId: string, body: any, shift: any, adminCl
 // ── Save the edit ──
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function handleUpdateShift(shiftId: string, body: any, shift: any, ctx: any, adminClient: any) {
-  const { date, startTime, endTime, location, instructions, changeReason, changeNotes, overrideReason } = body;
+  const { date, startTime, endTime, location, instructions, changeReason, changeNotes, overrideReason, timezoneOffsetMinutes } = body;
 
   if (!date || !startTime || !endTime) {
     return NextResponse.json({ error: "Date, start time, and end time are required." }, { status: 400 });
@@ -484,9 +484,16 @@ async function handleUpdateShift(shiftId: string, body: any, shift: any, ctx: an
     { date, startTime, endTime, location }
   );
 
-  // Build new timestamps
-  const newScheduledStart = new Date(`${date}T${startTime}:00`).toISOString();
-  const newScheduledFinish = new Date(`${date}T${endTime}:00`).toISOString();
+  // Build new timestamps with the client's timezone offset
+  const offsetMin = typeof timezoneOffsetMinutes === "number" ? timezoneOffsetMinutes : 0;
+  const sign = offsetMin <= 0 ? "+" : "-";
+  const absMin = Math.abs(offsetMin);
+  const offH = String(Math.floor(absMin / 60)).padStart(2, "0");
+  const offM = String(absMin % 60).padStart(2, "0");
+  const tzSuffix = `${sign}${offH}:${offM}`;
+
+  const newScheduledStart = new Date(`${date}T${startTime}:00${tzSuffix}`).toISOString();
+  const newScheduledFinish = new Date(`${date}T${endTime}:00${tzSuffix}`).toISOString();
 
   // Determine new status
   type ShiftStatusType = "pending" | "accepted" | "declined" | "completed" | "cancelled" | "updated_pending";

@@ -111,6 +111,7 @@ async function handleCreate(body: any, ctx: { businessId: string; userId: string
     recurrenceType,
     customEndDate,
     assignments, // EmployeeDateStatus[][] — with skipped/overridden flags
+    timezoneOffsetMinutes,
   } = body;
 
   if (!date || !startTime || !endTime || !employeeIds?.length || !recurrenceType) {
@@ -118,6 +119,14 @@ async function handleCreate(body: any, ctx: { businessId: string; userId: string
   }
 
   const adminClient = createAdminClient();
+
+  // Build timezone suffix from the client's offset so timestamps are stored correctly.
+  const offsetMin = typeof timezoneOffsetMinutes === "number" ? timezoneOffsetMinutes : 0;
+  const sign = offsetMin <= 0 ? "+" : "-";
+  const absMin = Math.abs(offsetMin);
+  const offH = String(Math.floor(absMin / 60)).padStart(2, "0");
+  const offM = String(absMin % 60).padStart(2, "0");
+  const tzSuffix = `${sign}${offH}:${offM}`;
 
   // Generate dates
   const dates = generateRecurringDates(
@@ -150,8 +159,8 @@ async function handleCreate(body: any, ctx: { businessId: string; userId: string
 
   for (let dateIdx = 0; dateIdx < dates.length; dateIdx++) {
     const shiftDate = dates[dateIdx];
-    const startISO = new Date(`${shiftDate}T${startTime}:00`).toISOString();
-    const endISO = new Date(`${shiftDate}T${endTime}:00`).toISOString();
+    const startISO = new Date(`${shiftDate}T${startTime}:00${tzSuffix}`).toISOString();
+    const endISO = new Date(`${shiftDate}T${endTime}:00${tzSuffix}`).toISOString();
 
     // Determine which employees to include for this date
     for (const empId of employeeIds as string[]) {

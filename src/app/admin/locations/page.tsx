@@ -43,6 +43,7 @@ export default function LocationsPage() {
   // List state
   const [locations, setLocations] = useState<WorkLocation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [successMsg, setSuccessMsg] = useState("");
 
   // Create / Edit location modal
   const [showLocationModal, setShowLocationModal] = useState(false);
@@ -53,6 +54,9 @@ export default function LocationsPage() {
   const [locLng, setLocLng] = useState("");
   const [locSaving, setLocSaving] = useState(false);
   const [locError, setLocError] = useState("");
+
+  // Track which locations have attendance configured (for badges)
+  const [configuredLocationIds, setConfiguredLocationIds] = useState<Set<string>>(new Set());
 
   // Attendance settings sheet
   const [settingsLocation, setSettingsLocation] = useState<WorkLocation | null>(null);
@@ -120,6 +124,17 @@ export default function LocationsPage() {
       setLocError("Location name is required.");
       return;
     }
+
+    // Validate coordinates client-side before sending
+    if (locLat && isNaN(Number(locLat))) {
+      setLocError("Latitude must be a valid number.");
+      return;
+    }
+    if (locLng && isNaN(Number(locLng))) {
+      setLocError("Longitude must be a valid number.");
+      return;
+    }
+
     setLocSaving(true);
     setLocError("");
 
@@ -150,6 +165,8 @@ export default function LocationsPage() {
 
       setShowLocationModal(false);
       fetchLocations();
+      setSuccessMsg(editingLocation ? "Location updated." : "Location created.");
+      setTimeout(() => setSuccessMsg(""), 3000);
     } catch {
       setLocError("Network error.");
     } finally {
@@ -212,6 +229,11 @@ export default function LocationsPage() {
         setSRounding(data.rounding_minutes);
         setSCheckoutMethod(data.checkout_method);
         setSDynamicRefresh(data.dynamic_qr_refresh_seconds);
+
+        // Track configured state
+        if (data.attendance_required) {
+          setConfiguredLocationIds((prev) => new Set(prev).add(loc.id));
+        }
       } else {
         // No settings yet — use defaults
         setSettings(null);
@@ -252,16 +274,16 @@ export default function LocationsPage() {
           qr_required: sQrRequired,
           qr_mode: sQrMode,
           gps_required: sGpsRequired,
-          allowed_radius_metres: sRadius,
+          allowed_radius_metres: sRadius || 100,
           selfie_required: sSelfie,
           site_photo_required: sSitePhoto,
-          early_checkin_minutes: sEarlyCheckin,
-          late_grace_minutes: sLateGrace,
-          early_departure_review_minutes: sEarlyDeparture,
-          late_finish_review_minutes: sLateFinish,
+          early_checkin_minutes: sEarlyCheckin || 0,
+          late_grace_minutes: sLateGrace || 0,
+          early_departure_review_minutes: sEarlyDeparture || 0,
+          late_finish_review_minutes: sLateFinish || 0,
           rounding_minutes: sRounding,
           checkout_method: sCheckoutMethod,
-          dynamic_qr_refresh_seconds: sDynamicRefresh,
+          dynamic_qr_refresh_seconds: sDynamicRefresh || 60,
         }),
       });
       const data = await res.json();
@@ -272,7 +294,23 @@ export default function LocationsPage() {
       }
 
       setSettings(data);
+
+      // Track configured state for badges
+      if (sAttRequired) {
+        setConfiguredLocationIds((prev) => new Set(prev).add(settingsLocation.id));
+      } else {
+        setConfiguredLocationIds((prev) => {
+          const next = new Set(prev);
+          next.delete(settingsLocation.id);
+          return next;
+        });
+      }
+
       setSettingsLocation(null); // close
+
+      // Show success toast
+      setSuccessMsg("Attendance settings saved.");
+      setTimeout(() => setSuccessMsg(""), 3000);
     } catch {
       setSettingsError("Network error.");
     } finally {
@@ -330,6 +368,13 @@ export default function LocationsPage() {
         </button>
       </div>
 
+      {/* Success toast */}
+      {successMsg && (
+        <div className="mb-4 bg-green-50 text-green-700 text-sm p-3 rounded-lg border border-green-200 flex items-center gap-2">
+          <span>✓</span> {successMsg}
+        </div>
+      )}
+
       {/* Loading */}
       {loading && (
         <div className="text-center py-12 text-gray-500">Loading locations…</div>
@@ -366,6 +411,11 @@ export default function LocationsPage() {
                         GPS
                       </span>
                     )}
+                    {configuredLocationIds.has(loc.id) && (
+                      <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+                        ✓ Attendance
+                      </span>
+                    )}
                   </div>
                   {loc.address && (
                     <p className="text-sm text-gray-500 mt-0.5 truncate">{loc.address}</p>
@@ -376,7 +426,7 @@ export default function LocationsPage() {
                     </p>
                   )}
                 </div>
-                <div className="flex items-center gap-1 ml-3 shrink-0">
+                <div className="flex flex-wrap items-center gap-1 ml-3 shrink-0">
                   <button
                     onClick={() => openSettings(loc)}
                     className="text-xs bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg font-medium hover:bg-blue-100 transition-colors"

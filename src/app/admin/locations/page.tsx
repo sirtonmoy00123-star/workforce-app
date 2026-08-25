@@ -86,6 +86,20 @@ export default function LocationsPage() {
 
   // Track which locations have static QR mode enabled (for showing QR button)
   const [staticQrLocationIds, setStaticQrLocationIds] = useState<Set<string>>(new Set());
+  // Track which locations have dynamic QR mode enabled
+  const [dynamicQrLocationIds, setDynamicQrLocationIds] = useState<Set<string>>(new Set());
+
+  // Dynamic QR modal
+  const [dynQrLocation, setDynQrLocation] = useState<WorkLocation | null>(null);
+  const [dynQrToken, setDynQrToken] = useState("");
+  const [dynQrExpiresAt, setDynQrExpiresAt] = useState(0);
+  const [dynQrTtl, setDynQrTtl] = useState(60);
+  const [dynQrCountdown, setDynQrCountdown] = useState(0);
+  const [dynQrLoading, setDynQrLoading] = useState(false);
+  const [dynQrError, setDynQrError] = useState("");
+  const [dynQrFullscreen, setDynQrFullscreen] = useState(false);
+  const dynQrIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const dynQrCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Settings form state
   const [sAttRequired, setSAttRequired] = useState(false);
@@ -111,9 +125,10 @@ export default function LocationsPage() {
       if (Array.isArray(data)) {
         setLocations(data);
 
-        // Check which locations have attendance configured + static QR mode
+        // Check which locations have attendance configured + QR mode
         const configured = new Set<string>();
         const staticQr = new Set<string>();
+        const dynamicQr = new Set<string>();
         await Promise.all(
           data.map(async (loc: WorkLocation) => {
             try {
@@ -124,6 +139,9 @@ export default function LocationsPage() {
                 if (sData.qr_required && sData.qr_mode === "STATIC") {
                   staticQr.add(loc.id);
                 }
+                if (sData.qr_required && sData.qr_mode === "DYNAMIC") {
+                  dynamicQr.add(loc.id);
+                }
               }
             } catch {
               // silent
@@ -132,6 +150,7 @@ export default function LocationsPage() {
         );
         setConfiguredLocationIds(configured);
         setStaticQrLocationIds(staticQr);
+        setDynamicQrLocationIds(dynamicQr);
       }
     } catch {
       // silent
@@ -363,6 +382,17 @@ export default function LocationsPage() {
         });
       }
 
+      // Track dynamic QR locations (for showing Live QR button)
+      if (sAttRequired && sQrRequired && sQrMode === "DYNAMIC") {
+        setDynamicQrLocationIds((prev) => new Set(prev).add(settingsLocation.id));
+      } else {
+        setDynamicQrLocationIds((prev) => {
+          const next = new Set(prev);
+          next.delete(settingsLocation.id);
+          return next;
+        });
+      }
+
       setSettingsLocation(null); // close
 
       // Show success toast
@@ -510,6 +540,86 @@ export default function LocationsPage() {
     printWindow.print();
   }
 
+  // ── Dynamic QR management ──
+  async function fetchDynQrToken(locationId: string) {
+    setDynQrLoading(true);
+    setDynQrError("");
+
+    try {
+      const res = await fetch(`/api/dynamic-qr?locationId=${locationId}`);
+      const data = await res.json();
+
+      if (!res.ok) {
+        setDynQrError(data.error || "Failed to generate dynamic QR.");
+        return;
+      }
+
+      setDynQrToken(data.token);
+      setDynQrExpiresAt(data.expiresAt);
+      setDynQrTtl(data.ttlSeconds);
+      setDynQrCountdown(data.ttlSeconds);
+    } catch {
+      setDynQrError("Network error.");
+    } finally {
+      setDynQrLoading(false);
+    }
+  }
+
+  function openDynQrModal(loc: WorkLocation) {
+    setDynQrLocation(loc);
+    setDynQrToken("");
+    setDynQrError("");
+    setDynQrFullscreen(false);
+
+    // Fetch first token
+    fetchDynQrToken(loc.id);
+  }
+
+  function closeDynQrModal() {
+    setDynQrLocation(null);
+    setDynQrToken("");
+    setDynQrFullscreen(false);
+
+    // Clear intervals
+    if (dynQrIntervalRef.current) {
+      clearInterval(dynQrIntervalRef.current);
+      dynQrIntervalRef.current = null;
+    }
+    if (dynQrCountdownRef.current) {
+      clearInterval(dynQrCountdownRef.current);
+      dynQrCountdownRef.current = null;
+    }
+  }
+
+  // Auto-refresh and countdown for dynamic QR
+  useEffect(() => {
+    if (!dynQrLocation || !dynQrToken || !dynQrTtl) return;
+
+    // Clear existing intervals
+    if (dynQrIntervalRef.current) clearInterval(dynQrIntervalRef.current);
+    if (dynQrCountdownRef.current) clearInterval(dynQrCountdownRef.current);
+
+    // Countdown every second
+    dynQrCountdownRef.current = setInterval(() => {
+      setDynQrCountdown((prev) => {
+        if (prev <= 1) return 0;
+        return prev - 1;
+      });
+    }, 1000);
+
+    // Auto-refresh token before expiry (refresh 2 seconds early)
+    const refreshMs = Math.max((dynQrTtl - 2) * 1000, 5000);
+    dynQrIntervalRef.current = setInterval(() => {
+      fetchDynQrToken(dynQrLocation.id);
+    }, refreshMs);
+
+    return () => {
+      if (dynQrIntervalRef.current) clearInterval(dynQrIntervalRef.current);
+      if (dynQrCountdownRef.current) clearInterval(dynQrCountdownRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dynQrLocation?.id, dynQrToken]);
+
   // ── Toggle helper ──
   function Toggle({
     label,
@@ -633,6 +743,14 @@ export default function LocationsPage() {
                     QR Code
                   </button>
                 )}
+                {dynamicQrLocationIds.has(loc.id) && (
+                  <button
+                    onClick={() => openDynQrModal(loc)}
+                    className="text-xs bg-purple-50 text-purple-700 px-3 py-1.5 rounded-lg font-medium hover:bg-purple-100 transition-colors"
+                  >
+                    Live QR
+                  </button>
+                )}
                 <button
                   onClick={() => openEditModal(loc)}
                   className="text-xs bg-gray-50 text-gray-600 px-3 py-1.5 rounded-lg font-medium hover:bg-gray-100 transition-colors"
@@ -747,6 +865,113 @@ export default function LocationsPage() {
                   {locSaving ? "Saving…" : editingLocation ? "Save Changes" : "Create Location"}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Dynamic QR Live Modal ─── */}
+      {dynQrLocation && (
+        <div className={`fixed inset-0 z-50 flex items-center justify-center ${
+          dynQrFullscreen ? "bg-white" : "bg-black/40"
+        }`}>
+          <div className={`bg-white overflow-y-auto ${
+            dynQrFullscreen
+              ? "w-full h-full flex flex-col items-center justify-center"
+              : "w-full md:max-w-lg md:rounded-2xl rounded-t-2xl max-h-[90vh]"
+          }`}>
+            <div className={`${dynQrFullscreen ? "text-center w-full max-w-md px-4" : "p-5"}`}>
+              {/* Header */}
+              {!dynQrFullscreen && (
+                <div className="flex items-center justify-between mb-1">
+                  <h2 className="text-lg font-bold text-gray-900">Dynamic Attendance QR</h2>
+                  <button
+                    onClick={closeDynQrModal}
+                    className="text-gray-400 hover:text-gray-600 text-xl"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+              <p className={`text-sm text-gray-500 ${dynQrFullscreen ? "mb-6 text-lg" : "mb-4"}`}>
+                {dynQrLocation.name}
+              </p>
+
+              {dynQrError && (
+                <div className="bg-red-50 text-red-700 text-sm p-3 rounded-lg mb-4">
+                  {dynQrError}
+                </div>
+              )}
+
+              {dynQrLoading && !dynQrToken && (
+                <div className="text-center py-12 text-gray-500">Generating…</div>
+              )}
+
+              {dynQrToken && (
+                <div className="flex flex-col items-center">
+                  {/* QR Code */}
+                  <div className="p-4 bg-white rounded-2xl border-2 border-blue-200">
+                    <QRCodeSVG
+                      value={dynQrToken}
+                      size={dynQrFullscreen ? 300 : 220}
+                      level="M"
+                      includeMargin={false}
+                      bgColor="#FFFFFF"
+                      fgColor="#111827"
+                    />
+                  </div>
+
+                  {/* Countdown */}
+                  <div className="mt-4 text-center">
+                    <div className="flex items-center justify-center gap-2">
+                      <span className={`text-2xl font-bold tabular-nums ${
+                        dynQrCountdown <= 5 ? "text-red-600" : dynQrCountdown <= 15 ? "text-amber-600" : "text-gray-900"
+                      }`}>
+                        {dynQrCountdown}s
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Refreshes every {dynQrTtl} seconds
+                    </p>
+
+                    {/* Progress bar */}
+                    <div className="w-48 mx-auto mt-2 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-1000 ease-linear ${
+                          dynQrCountdown <= 5 ? "bg-red-500" : dynQrCountdown <= 15 ? "bg-amber-500" : "bg-blue-500"
+                        }`}
+                        style={{ width: `${(dynQrCountdown / dynQrTtl) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Active indicator */}
+                  <div className="mt-3">
+                    <span className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-700 bg-blue-50 px-3 py-1 rounded-full">
+                      <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
+                      Live
+                    </span>
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className={`flex gap-2 ${dynQrFullscreen ? "mt-8" : "mt-4"} w-full`}>
+                    <button
+                      onClick={() => setDynQrFullscreen(!dynQrFullscreen)}
+                      className="flex-1 py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                    >
+                      {dynQrFullscreen ? "↙ Exit Full Screen" : "⛶ Full Screen"}
+                    </button>
+                    {dynQrFullscreen && (
+                      <button
+                        onClick={closeDynQrModal}
+                        className="flex-1 py-2.5 border border-red-200 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
+                      >
+                        ✕ Close
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

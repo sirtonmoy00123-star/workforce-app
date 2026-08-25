@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { QRCodeSVG } from "qrcode.react";
 
 // ────────────────────────────────────────────────────────────
 // Types
@@ -35,6 +36,16 @@ interface AttendanceSettings {
   dynamic_qr_refresh_seconds: number;
 }
 
+interface StaticQrCredential {
+  id: string;
+  location_id: string;
+  token: string;
+  status: "ACTIVE" | "PAUSED" | "REVOKED";
+  created_at: string;
+  regenerated_at: string | null;
+  paused_at: string | null;
+}
+
 // ────────────────────────────────────────────────────────────
 // Component
 // ────────────────────────────────────────────────────────────
@@ -65,6 +76,17 @@ export default function LocationsPage() {
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsError, setSettingsError] = useState("");
 
+  // Static QR modal
+  const [qrLocation, setQrLocation] = useState<WorkLocation | null>(null);
+  const [qrCredential, setQrCredential] = useState<StaticQrCredential | null>(null);
+  const [qrLoading, setQrLoading] = useState(false);
+  const [qrActioning, setQrActioning] = useState(false);
+  const [qrError, setQrError] = useState("");
+  const qrRef = useRef<HTMLDivElement>(null);
+
+  // Track which locations have static QR mode enabled (for showing QR button)
+  const [staticQrLocationIds, setStaticQrLocationIds] = useState<Set<string>>(new Set());
+
   // Settings form state
   const [sAttRequired, setSAttRequired] = useState(false);
   const [sQrRequired, setSQrRequired] = useState(false);
@@ -89,8 +111,9 @@ export default function LocationsPage() {
       if (Array.isArray(data)) {
         setLocations(data);
 
-        // Check which locations have attendance configured
+        // Check which locations have attendance configured + static QR mode
         const configured = new Set<string>();
+        const staticQr = new Set<string>();
         await Promise.all(
           data.map(async (loc: WorkLocation) => {
             try {
@@ -98,6 +121,9 @@ export default function LocationsPage() {
               const sData = await sRes.json();
               if (sData && sData.attendance_required) {
                 configured.add(loc.id);
+                if (sData.qr_required && sData.qr_mode === "STATIC") {
+                  staticQr.add(loc.id);
+                }
               }
             } catch {
               // silent
@@ -105,6 +131,7 @@ export default function LocationsPage() {
           })
         );
         setConfiguredLocationIds(configured);
+        setStaticQrLocationIds(staticQr);
       }
     } catch {
       // silent
@@ -325,6 +352,17 @@ export default function LocationsPage() {
         });
       }
 
+      // Track static QR locations (for showing QR Code button)
+      if (sAttRequired && sQrRequired && sQrMode === "STATIC") {
+        setStaticQrLocationIds((prev) => new Set(prev).add(settingsLocation.id));
+      } else {
+        setStaticQrLocationIds((prev) => {
+          const next = new Set(prev);
+          next.delete(settingsLocation.id);
+          return next;
+        });
+      }
+
       setSettingsLocation(null); // close
 
       // Show success toast
@@ -335,6 +373,141 @@ export default function LocationsPage() {
     } finally {
       setSettingsSaving(false);
     }
+  }
+
+  // ── Static QR management ──
+  async function openQrModal(loc: WorkLocation) {
+    setQrLocation(loc);
+    setQrLoading(true);
+    setQrError("");
+    setQrCredential(null);
+
+    try {
+      const res = await fetch(`/api/static-qr?locationId=${loc.id}`);
+      const data = await res.json();
+      if (data && data.id) {
+        setQrCredential(data);
+      }
+    } catch {
+      setQrError("Failed to load QR credential.");
+    } finally {
+      setQrLoading(false);
+    }
+  }
+
+  async function handleGenerateQr() {
+    if (!qrLocation) return;
+
+    const action = qrCredential ? "regenerate" : "generate";
+    if (qrCredential && !confirm("Regenerating will permanently invalidate the current QR code. All printed posters will stop working. Continue?")) {
+      return;
+    }
+
+    setQrActioning(true);
+    setQrError("");
+
+    try {
+      const res = await fetch("/api/static-qr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locationId: qrLocation.id }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setQrError(data.error || "Failed to generate QR.");
+        return;
+      }
+
+      setQrCredential(data);
+      setSuccessMsg(action === "regenerate" ? "QR code regenerated." : "QR code generated.");
+      setTimeout(() => setSuccessMsg(""), 3000);
+    } catch {
+      setQrError("Network error.");
+    } finally {
+      setQrActioning(false);
+    }
+  }
+
+  async function handleToggleQrPause() {
+    if (!qrCredential) return;
+
+    const action = qrCredential.status === "ACTIVE" ? "pause" : "resume";
+    if (action === "pause" && !confirm("Pausing will temporarily prevent employees from checking in with this QR code. Continue?")) {
+      return;
+    }
+
+    setQrActioning(true);
+    setQrError("");
+
+    try {
+      const res = await fetch(`/api/static-qr/${qrCredential.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setQrError(data.error || `Failed to ${action} QR.`);
+        return;
+      }
+
+      setQrCredential(data);
+      setSuccessMsg(action === "pause" ? "QR code paused." : "QR code resumed.");
+      setTimeout(() => setSuccessMsg(""), 3000);
+    } catch {
+      setQrError("Network error.");
+    } finally {
+      setQrActioning(false);
+    }
+  }
+
+  function handlePrintQr() {
+    if (!qrRef.current || !qrLocation) return;
+
+    const svgElement = qrRef.current.querySelector("svg");
+    if (!svgElement) return;
+
+    const svgData = new XMLSerializer().serializeToString(svgElement);
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Attendance QR - ${qrLocation.name}</title>
+        <style>
+          body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          }
+          h1 { font-size: 28px; margin-bottom: 8px; color: #111; }
+          p { font-size: 16px; color: #666; margin-bottom: 32px; }
+          svg { width: 300px; height: 300px; }
+          .footer { margin-top: 32px; font-size: 12px; color: #999; }
+          @media print {
+            body { padding: 0; }
+          }
+        </style>
+      </head>
+      <body>
+        <h1>${qrLocation.name}</h1>
+        <p>Scan to check in for attendance</p>
+        ${svgData}
+        <div class="footer">Attendance QR Code • Do not remove</div>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
   }
 
   // ── Toggle helper ──
@@ -452,6 +625,14 @@ export default function LocationsPage() {
                 >
                   Attendance
                 </button>
+                {staticQrLocationIds.has(loc.id) && (
+                  <button
+                    onClick={() => openQrModal(loc)}
+                    className="text-xs bg-purple-50 text-purple-700 px-3 py-1.5 rounded-lg font-medium hover:bg-purple-100 transition-colors"
+                  >
+                    QR Code
+                  </button>
+                )}
                 <button
                   onClick={() => openEditModal(loc)}
                   className="text-xs bg-gray-50 text-gray-600 px-3 py-1.5 rounded-lg font-medium hover:bg-gray-100 transition-colors"
@@ -566,6 +747,135 @@ export default function LocationsPage() {
                   {locSaving ? "Saving…" : editingLocation ? "Save Changes" : "Create Location"}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Static QR Management Modal ─── */}
+      {qrLocation && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-end md:items-center justify-center">
+          <div className="bg-white w-full md:max-w-lg md:rounded-2xl rounded-t-2xl max-h-[90vh] overflow-y-auto">
+            <div className="p-5">
+              <div className="flex items-center justify-between mb-1">
+                <h2 className="text-lg font-bold text-gray-900">Static Attendance QR</h2>
+                <button
+                  onClick={() => setQrLocation(null)}
+                  className="text-gray-400 hover:text-gray-600 text-xl"
+                >
+                  ✕
+                </button>
+              </div>
+              <p className="text-sm text-gray-500 mb-4">{qrLocation.name}</p>
+
+              {qrError && (
+                <div className="bg-red-50 text-red-700 text-sm p-3 rounded-lg mb-4">
+                  {qrError}
+                </div>
+              )}
+
+              {qrLoading && (
+                <div className="text-center py-12 text-gray-500">Loading…</div>
+              )}
+
+              {!qrLoading && !qrCredential && (
+                <div className="text-center py-8">
+                  <div className="text-5xl mb-4">📱</div>
+                  <p className="text-gray-500 mb-2">No QR code generated yet.</p>
+                  <p className="text-xs text-gray-400 mb-6">
+                    Generate a static QR code that employees scan to check in at this location.
+                  </p>
+                  <button
+                    onClick={handleGenerateQr}
+                    disabled={qrActioning}
+                    className="bg-blue-600 text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {qrActioning ? "Generating…" : "Generate QR Code"}
+                  </button>
+                </div>
+              )}
+
+              {!qrLoading && qrCredential && (
+                <div>
+                  {/* QR Code Display */}
+                  <div className="flex flex-col items-center py-4" ref={qrRef}>
+                    <div className={`p-4 bg-white rounded-2xl border-2 ${
+                      qrCredential.status === "ACTIVE"
+                        ? "border-green-200"
+                        : "border-amber-200"
+                    }`}>
+                      <QRCodeSVG
+                        value={`WFA:CHECKIN:${qrCredential.token}`}
+                        size={220}
+                        level="M"
+                        includeMargin={false}
+                        bgColor="#FFFFFF"
+                        fgColor={qrCredential.status === "PAUSED" ? "#9CA3AF" : "#111827"}
+                      />
+                    </div>
+
+                    {/* Status badge */}
+                    <div className="mt-3">
+                      {qrCredential.status === "ACTIVE" ? (
+                        <span className="inline-flex items-center gap-1.5 text-sm font-medium text-green-700 bg-green-50 px-3 py-1 rounded-full">
+                          <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                          Active
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 text-sm font-medium text-amber-700 bg-amber-50 px-3 py-1 rounded-full">
+                          <span className="w-2 h-2 bg-amber-500 rounded-full" />
+                          Paused
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Created date */}
+                    <p className="text-xs text-gray-400 mt-2">
+                      Generated {new Date(qrCredential.created_at).toLocaleDateString()}
+                    </p>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="space-y-2 mt-2">
+                    {/* Print Poster */}
+                    <button
+                      onClick={handlePrintQr}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+                    >
+                      🖨️ Print Poster
+                    </button>
+
+                    {/* Pause / Resume */}
+                    <button
+                      onClick={handleToggleQrPause}
+                      disabled={qrActioning}
+                      className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium border transition-colors disabled:opacity-50 ${
+                        qrCredential.status === "ACTIVE"
+                          ? "border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100"
+                          : "border-green-300 text-green-700 bg-green-50 hover:bg-green-100"
+                      }`}
+                    >
+                      {qrActioning
+                        ? "Processing…"
+                        : qrCredential.status === "ACTIVE"
+                        ? "⏸ Pause QR Code"
+                        : "▶ Resume QR Code"}
+                    </button>
+
+                    {/* Regenerate */}
+                    <button
+                      onClick={handleGenerateQr}
+                      disabled={qrActioning}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 border border-red-200 text-red-600 rounded-lg text-sm font-medium hover:bg-red-50 transition-colors disabled:opacity-50"
+                    >
+                      🔄 Regenerate
+                    </button>
+                    <p className="text-xs text-gray-400 text-center">
+                      Regenerating creates a new QR and permanently invalidates the current one.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

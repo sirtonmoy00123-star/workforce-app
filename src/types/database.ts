@@ -985,6 +985,42 @@ export type Database = {
         };
         Relationships: [];
       };
+      static_qr_credentials: {
+        Row: {
+          id: string;
+          business_id: string;
+          location_id: string;
+          token: string;
+          status: "ACTIVE" | "PAUSED" | "REVOKED";
+          created_by: string | null;
+          created_at: string;
+          regenerated_at: string | null;
+          paused_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          business_id: string;
+          location_id: string;
+          token: string;
+          status?: "ACTIVE" | "PAUSED" | "REVOKED";
+          created_by?: string | null;
+          created_at?: string;
+          regenerated_at?: string | null;
+          paused_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          business_id?: string;
+          location_id?: string;
+          token?: string;
+          status?: "ACTIVE" | "PAUSED" | "REVOKED";
+          created_by?: string | null;
+          created_at?: string;
+          regenerated_at?: string | null;
+          paused_at?: string | null;
+        };
+        Relationships: [];
+      };
       attendance_settings: {
         Row: {
           id: string;

@@ -81,12 +81,31 @@ export default function LocationsPage() {
   const [sCheckoutMethod, setSCheckoutMethod] = useState("BUTTON_ONLY");
   const [sDynamicRefresh, setSDynamicRefresh] = useState(60);
 
-  // ── Fetch locations ──
+  // ── Fetch locations + their attendance status ──
   const fetchLocations = useCallback(async () => {
     try {
       const res = await fetch("/api/work-locations");
       const data = await res.json();
-      if (Array.isArray(data)) setLocations(data);
+      if (Array.isArray(data)) {
+        setLocations(data);
+
+        // Check which locations have attendance configured
+        const configured = new Set<string>();
+        await Promise.all(
+          data.map(async (loc: WorkLocation) => {
+            try {
+              const sRes = await fetch(`/api/attendance-settings?locationId=${loc.id}`);
+              const sData = await sRes.json();
+              if (sData && sData.attendance_required) {
+                configured.add(loc.id);
+              }
+            } catch {
+              // silent
+            }
+          })
+        );
+        setConfiguredLocationIds(configured);
+      }
     } catch {
       // silent
     } finally {

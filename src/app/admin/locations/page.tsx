@@ -402,50 +402,49 @@ export default function LocationsPage() {
               key={loc.id}
               className="bg-white rounded-xl border border-gray-200 p-4"
             >
-              <div className="flex items-start justify-between">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-semibold text-gray-900 truncate">{loc.name}</h3>
-                    {loc.latitude != null && loc.longitude != null && (
-                      <span className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full font-medium">
-                        GPS
-                      </span>
-                    )}
-                    {configuredLocationIds.has(loc.id) && (
-                      <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-medium">
-                        ✓ Attendance
-                      </span>
-                    )}
-                  </div>
-                  {loc.address && (
-                    <p className="text-sm text-gray-500 mt-0.5 truncate">{loc.address}</p>
-                  )}
-                  {loc.latitude != null && loc.longitude != null && (
-                    <p className="text-xs text-gray-400 mt-0.5 font-mono">
-                      {loc.latitude.toFixed(4)}, {loc.longitude.toFixed(4)}
-                    </p>
-                  )}
-                </div>
-                <div className="flex flex-wrap items-center gap-1 ml-3 shrink-0">
-                  <button
-                    onClick={() => openSettings(loc)}
-                    className="text-xs bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg font-medium hover:bg-blue-100 transition-colors"
-                  >
-                    Attendance
-                  </button>
-                  <button
-                    onClick={() => openEditModal(loc)}
-                    className="text-xs bg-gray-50 text-gray-600 px-3 py-1.5 rounded-lg font-medium hover:bg-gray-100 transition-colors"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => handleArchiveLocation(loc)}
-                    className="text-xs text-red-500 px-2 py-1.5 rounded-lg hover:bg-red-50 transition-colors"
-                  >
-                    Archive
-                  </button>
-                </div>
+              {/* Top row: name + badges */}
+              <div className="flex items-center gap-2 mb-1">
+                <h3 className="font-semibold text-gray-900 truncate">{loc.name}</h3>
+                {loc.latitude != null && loc.longitude != null && (
+                  <span className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full font-medium shrink-0">
+                    GPS
+                  </span>
+                )}
+                {configuredLocationIds.has(loc.id) && (
+                  <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-medium shrink-0">
+                    ✓ Attendance
+                  </span>
+                )}
+              </div>
+              {/* Address + coords */}
+              {loc.address && (
+                <p className="text-sm text-gray-500 truncate">{loc.address}</p>
+              )}
+              {loc.latitude != null && loc.longitude != null && (
+                <p className="text-xs text-gray-400 font-mono">
+                  {loc.latitude.toFixed(4)}, {loc.longitude.toFixed(4)}
+                </p>
+              )}
+              {/* Action buttons — separate row */}
+              <div className="flex items-center gap-1 mt-2.5 pt-2.5 border-t border-gray-100">
+                <button
+                  onClick={() => openSettings(loc)}
+                  className="text-xs bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg font-medium hover:bg-blue-100 transition-colors"
+                >
+                  Attendance
+                </button>
+                <button
+                  onClick={() => openEditModal(loc)}
+                  className="text-xs bg-gray-50 text-gray-600 px-3 py-1.5 rounded-lg font-medium hover:bg-gray-100 transition-colors"
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() => handleArchiveLocation(loc)}
+                  className="text-xs text-red-500 px-2 py-1.5 rounded-lg hover:bg-red-50 transition-colors ml-auto"
+                >
+                  Archive
+                </button>
               </div>
             </div>
           ))}

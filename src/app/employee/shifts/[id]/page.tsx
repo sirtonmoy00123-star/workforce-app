@@ -23,6 +23,19 @@ interface Shift {
   } | null;
 }
 
+interface AttendanceInfo {
+  attendanceRequired: boolean;
+  record: {
+    id: string;
+    checkin_status: string;
+    actual_checkin: string | null;
+    qr_verified: boolean;
+    checkin_distance_metres: number | null;
+    requires_review: boolean;
+  } | null;
+  location: { name: string } | null;
+}
+
 interface ProofRequirement {
   id: string;
   proof_type: string;
@@ -88,6 +101,9 @@ export default function ShiftDetailPage() {
   const [uploadError, setUploadError] = useState("");
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
+  // Attendance check-in state
+  const [attendanceInfo, setAttendanceInfo] = useState<AttendanceInfo | null>(null);
+
   async function loadProofData(shiftId: string) {
     try {
       const [reqRes, subRes] = await Promise.all([
@@ -111,13 +127,17 @@ export default function ShiftDetailPage() {
     Promise.all([
       fetch(`/api/shifts/${id}`).then((r) => r.json()),
       fetch("/api/profile").then((r) => r.json()),
-    ]).then(([shiftData, profileData]) => {
+      fetch(`/api/attendance/status?shiftId=${id}`).then((r) => r.json()).catch(() => null),
+    ]).then(([shiftData, profileData, attendanceData]) => {
       if (shiftData.error) setError(shiftData.error);
       else {
         setShift(shiftData);
         const proofOn = profileData?.task_proof_enabled === true;
         setTaskProofEnabled(proofOn);
         if (proofOn) loadProofData(id);
+      }
+      if (attendanceData && !attendanceData.error) {
+        setAttendanceInfo(attendanceData);
       }
       setLoading(false);
     }).catch(() => {
@@ -512,12 +532,90 @@ export default function ShiftDetailPage() {
           </div>
         )}
 
+        {/* Attendance check-in section */}
+        {attendanceInfo?.attendanceRequired && (shift.status === "accepted" || shift.status === "updated_pending") && (
+          <div className="mt-6 border-t border-gray-200 pt-5">
+            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
+              📍 Attendance
+            </h2>
+
+            {(() => {
+              const record = attendanceInfo.record;
+              const checkedIn = record && record.checkin_status !== "NOT_CHECKED_IN";
+
+              if (checkedIn && record) {
+                // Already checked in — show status
+                return (
+                  <div className={`rounded-xl p-4 ${
+                    record.checkin_status === "PRESENT"
+                      ? "bg-green-50 border border-green-200"
+                      : "bg-amber-50 border border-amber-200"
+                  }`}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={record.checkin_status === "PRESENT" ? "text-green-600" : "text-amber-600"}>
+                        {record.checkin_status === "PRESENT" ? "✓" : "⚠"}
+                      </span>
+                      <span className={`font-semibold ${
+                        record.checkin_status === "PRESENT" ? "text-green-700" : "text-amber-700"
+                      }`}>
+                        {record.checkin_status === "PRESENT" ? "Present" :
+                         record.checkin_status === "LATE" ? "Checked In — Late" :
+                         "Needs Review"}
+                      </span>
+                    </div>
+                    {record.actual_checkin && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Checked in at {new Date(record.actual_checkin).toLocaleTimeString("en-AU", {
+                          hour: "numeric", minute: "2-digit", hour12: true
+                        })}
+                      </p>
+                    )}
+                    {record.checkin_distance_metres != null && (
+                      <p className="text-xs text-gray-500">{record.checkin_distance_metres}m from site</p>
+                    )}
+                    {record.requires_review && (
+                      <p className="text-xs text-amber-600 mt-1">⚠ Flagged for admin review</p>
+                    )}
+                  </div>
+                );
+              }
+
+              // Not checked in — show CHECK IN button
+              return (
+                <div>
+                  <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-400">○</span>
+                      <span className="text-gray-600 text-sm">Not Checked In</span>
+                    </div>
+                    {attendanceInfo.location && (
+                      <p className="text-xs text-gray-400 mt-1">{attendanceInfo.location.name}</p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => router.push(`/employee/checkin/${shift.id}`)}
+                    className="w-full bg-purple-600 text-white rounded-xl py-3.5 text-base font-bold
+                               hover:bg-purple-700 transition-colors"
+                  >
+                    📍 CHECK IN
+                  </button>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
         {/* Start Shift button — only for accepted shifts that haven't been started */}
         {shift.status === "accepted" && !isWorking && (
           <button
             onClick={() => router.push(`/employee/start-shift/${shift.id}`)}
-            className="w-full mt-6 bg-blue-600 text-white rounded-lg py-3 text-base font-bold
-                       hover:bg-blue-700 transition-colors"
+            className={`w-full mt-6 bg-blue-600 text-white rounded-lg py-3 text-base font-bold
+                       hover:bg-blue-700 transition-colors ${
+                         attendanceInfo?.attendanceRequired &&
+                         (!attendanceInfo.record || attendanceInfo.record.checkin_status === "NOT_CHECKED_IN")
+                           ? "opacity-50"
+                           : ""
+                       }`}
           >
             START SHIFT
           </button>

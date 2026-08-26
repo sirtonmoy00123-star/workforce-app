@@ -130,7 +130,21 @@ export async function POST(request: Request) {
       );
     }
 
-    // 4. Create the shift
+    // 4. Auto-link location_id if location text matches a work_location name
+    let locationId: string | null = null;
+    if (location) {
+      const { data: wl } = await adminClient
+        .from("work_locations")
+        .select("id")
+        .eq("business_id", ctx.businessId)
+        .ilike("name", location)
+        .eq("status", "ACTIVE")
+        .limit(1)
+        .single();
+      if (wl) locationId = wl.id;
+    }
+
+    // 5. Create the shift
     const { data: shift, error } = await adminClient
       .from("shifts")
       .insert({
@@ -140,6 +154,7 @@ export async function POST(request: Request) {
         scheduled_start: scheduledStart,
         scheduled_finish: scheduledFinish,
         location: location || null,
+        location_id: locationId,
         instructions: instructions || null,
         require_odometer: typeof requireOdometer === "boolean" ? requireOdometer : null,
         status: "pending",

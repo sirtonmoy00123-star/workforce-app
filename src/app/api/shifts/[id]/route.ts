@@ -502,6 +502,20 @@ async function handleUpdateShift(shiftId: string, body: any, shift: any, ctx: an
     newStatus = "updated_pending";
   }
 
+  // Auto-link location_id if location text matches a work_location name
+  let locationId: string | null = null;
+  if (location) {
+    const { data: wl } = await adminClient
+      .from("work_locations")
+      .select("id")
+      .eq("business_id", shift.business_id)
+      .ilike("name", location)
+      .eq("status", "ACTIVE")
+      .limit(1)
+      .single();
+    if (wl) locationId = wl.id;
+  }
+
   // Update the shift
   const { error: updateError } = await adminClient
     .from("shifts")
@@ -510,6 +524,7 @@ async function handleUpdateShift(shiftId: string, body: any, shift: any, ctx: an
       scheduled_start: newScheduledStart,
       scheduled_finish: newScheduledFinish,
       location: location || null,
+      location_id: locationId,
       instructions: instructions || null,
       status: newStatus,
       updated_by: ctx.userId,

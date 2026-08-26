@@ -47,7 +47,8 @@
       "Bash(git commit -m 'Per-shift Odometer toggle alongside Task Proof *)",
       "Bash(git commit -m 'Fix task proof upload on finish-shift: inline upload instead of navigation *)",
       "Bash(git commit -m 'Edit Shift: add Odometer toggle and Task Proof settings to edit modal *)",
-      "Bash(gh api *)"
+      "Bash(gh api *)",
+      "Bash(git commit -m 'Attendance Phase 4: Employee check-in API and multi-step flow *)"
     ]
   }
 }

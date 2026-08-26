@@ -28,10 +28,16 @@ interface AttendanceInfo {
   record: {
     id: string;
     checkin_status: string;
+    checkout_status: string;
     actual_checkin: string | null;
+    actual_checkout: string | null;
     qr_verified: boolean;
     checkin_distance_metres: number | null;
+    checkout_distance_metres: number | null;
     requires_review: boolean;
+  } | null;
+  settings: {
+    checkout_method: string;
   } | null;
   location: { name: string } | null;
 }
@@ -532,8 +538,8 @@ export default function ShiftDetailPage() {
           </div>
         )}
 
-        {/* Attendance check-in section */}
-        {attendanceInfo?.attendanceRequired && (shift.status === "accepted" || shift.status === "updated_pending") && (
+        {/* Attendance check-in / check-out section */}
+        {attendanceInfo?.attendanceRequired && (shift.status === "accepted" || shift.status === "updated_pending" || isWorking) && (
           <div className="mt-6 border-t border-gray-200 pt-5">
             <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
               📍 Attendance
@@ -542,39 +548,86 @@ export default function ShiftDetailPage() {
             {(() => {
               const record = attendanceInfo.record;
               const checkedIn = record && record.checkin_status !== "NOT_CHECKED_IN";
+              const checkedOut = record && record.checkout_status && record.checkout_status !== "NOT_CHECKED_OUT";
 
               if (checkedIn && record) {
-                // Already checked in — show status
                 return (
-                  <div className={`rounded-xl p-4 ${
-                    record.checkin_status === "PRESENT"
-                      ? "bg-green-50 border border-green-200"
-                      : "bg-amber-50 border border-amber-200"
-                  }`}>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className={record.checkin_status === "PRESENT" ? "text-green-600" : "text-amber-600"}>
-                        {record.checkin_status === "PRESENT" ? "✓" : "⚠"}
-                      </span>
-                      <span className={`font-semibold ${
-                        record.checkin_status === "PRESENT" ? "text-green-700" : "text-amber-700"
-                      }`}>
-                        {record.checkin_status === "PRESENT" ? "Present" :
-                         record.checkin_status === "LATE" ? "Checked In — Late" :
-                         "Needs Review"}
-                      </span>
+                  <div>
+                    {/* Check-in status */}
+                    <div className={`rounded-xl p-4 ${
+                      record.checkin_status === "PRESENT" || record.checkin_status === "APPROVED_MANUALLY"
+                        ? "bg-green-50 border border-green-200"
+                        : "bg-amber-50 border border-amber-200"
+                    }`}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={record.checkin_status === "PRESENT" || record.checkin_status === "APPROVED_MANUALLY" ? "text-green-600" : "text-amber-600"}>
+                          {record.checkin_status === "PRESENT" || record.checkin_status === "APPROVED_MANUALLY" ? "✓" : "⚠"}
+                        </span>
+                        <span className={`font-semibold ${
+                          record.checkin_status === "PRESENT" || record.checkin_status === "APPROVED_MANUALLY" ? "text-green-700" : "text-amber-700"
+                        }`}>
+                          {record.checkin_status === "PRESENT" ? "Present" :
+                           record.checkin_status === "APPROVED_MANUALLY" ? "Approved" :
+                           record.checkin_status === "LATE" ? "Checked In — Late" :
+                           "Needs Review"}
+                        </span>
+                      </div>
+                      {record.actual_checkin && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Checked in at {new Date(record.actual_checkin).toLocaleTimeString("en-AU", {
+                            hour: "numeric", minute: "2-digit", hour12: true
+                          })}
+                        </p>
+                      )}
+                      {record.checkin_distance_metres != null && (
+                        <p className="text-xs text-gray-500">{record.checkin_distance_metres}m from site</p>
+                      )}
                     </div>
-                    {record.actual_checkin && (
-                      <p className="text-xs text-gray-500 mt-1">
-                        Checked in at {new Date(record.actual_checkin).toLocaleTimeString("en-AU", {
-                          hour: "numeric", minute: "2-digit", hour12: true
-                        })}
-                      </p>
-                    )}
-                    {record.checkin_distance_metres != null && (
-                      <p className="text-xs text-gray-500">{record.checkin_distance_metres}m from site</p>
-                    )}
+
+                    {/* Checkout status */}
+                    {checkedOut ? (
+                      <div className={`rounded-xl p-4 mt-3 ${
+                        record.checkout_status === "CHECKED_OUT"
+                          ? "bg-indigo-50 border border-indigo-200"
+                          : "bg-amber-50 border border-amber-200"
+                      }`}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={record.checkout_status === "CHECKED_OUT" ? "text-indigo-600" : "text-amber-600"}>
+                            {record.checkout_status === "CHECKED_OUT" ? "✓" : "⚠"}
+                          </span>
+                          <span className={`font-semibold ${
+                            record.checkout_status === "CHECKED_OUT" ? "text-indigo-700" : "text-amber-700"
+                          }`}>
+                            {record.checkout_status === "CHECKED_OUT" ? "Checked Out" :
+                             record.checkout_status === "EARLY_DEPARTURE" ? "Early Departure" :
+                             record.checkout_status === "LATE_DEPARTURE" ? "Late Finish" :
+                             "Checkout — Needs Review"}
+                          </span>
+                        </div>
+                        {record.actual_checkout && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            Checked out at {new Date(record.actual_checkout).toLocaleTimeString("en-AU", {
+                              hour: "numeric", minute: "2-digit", hour12: true
+                            })}
+                          </p>
+                        )}
+                        {record.checkout_distance_metres != null && (
+                          <p className="text-xs text-gray-500">{record.checkout_distance_metres}m from site</p>
+                        )}
+                      </div>
+                    ) : isWorking ? (
+                      /* Show CHECK OUT button when shift is in progress */
+                      <button
+                        onClick={() => router.push(`/employee/checkout/${shift.id}`)}
+                        className="w-full mt-3 bg-indigo-600 text-white rounded-xl py-3.5 text-base font-bold
+                                   hover:bg-indigo-700 transition-colors"
+                      >
+                        📍 CHECK OUT
+                      </button>
+                    ) : null}
+
                     {record.requires_review && (
-                      <p className="text-xs text-amber-600 mt-1">⚠ Flagged for admin review</p>
+                      <p className="text-xs text-amber-600 mt-2">⚠ Flagged for admin review</p>
                     )}
                   </div>
                 );

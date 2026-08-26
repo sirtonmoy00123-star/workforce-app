@@ -53,6 +53,10 @@ export default function FinishShiftPage() {
   const [timesheet, setTimesheet] = useState<TimesheetResult | null>(null);
   const [odometerRequired, setOdometerRequired] = useState(true);
 
+  // Attendance checkout state (for post-finish integration)
+  const [checkoutNeeded, setCheckoutNeeded] = useState(false);
+  const [checkoutDone, setCheckoutDone] = useState(false);
+
   // Task proof warning state
   const [proofWarning, setProofWarning] = useState<{ message: string; missingProof: string[] } | null>(null);
 
@@ -220,6 +224,36 @@ export default function FinishShiftPage() {
   // Can submit: if odometer required, need photo + reading; otherwise always ready
   const canSubmit = odometerRequired ? !!(photo && odometerReading) : true;
 
+  // Check if attendance checkout is needed after shift finishes
+  useEffect(() => {
+    if (success && shiftId) {
+      fetch(`/api/attendance/status?shiftId=${shiftId}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (
+            data.attendanceRequired &&
+            data.record &&
+            data.record.checkin_status !== "NOT_CHECKED_IN" &&
+            (!data.record.checkout_status || data.record.checkout_status === "NOT_CHECKED_OUT")
+          ) {
+            const method = data.settings?.checkout_method || "BUTTON_ONLY";
+            if (method === "BUTTON_ONLY") {
+              // Auto-checkout silently
+              const fd = new FormData();
+              fd.append("shiftId", shiftId);
+              fd.append("auto", "true");
+              fetch("/api/attendance/checkout", { method: "POST", body: fd })
+                .then(() => setCheckoutDone(true))
+                .catch(() => {}); // silent fail for auto
+            } else {
+              setCheckoutNeeded(true);
+            }
+          }
+        })
+        .catch(() => {});
+    }
+  }, [success, shiftId]);
+
   // Success screen — show timesheet summary
   if (success) {
     return (
@@ -260,6 +294,26 @@ export default function FinishShiftPage() {
                 <span>Estimated Total</span>
                 <span className="text-green-600">${timesheet.estimated_total.toFixed(2)}</span>
               </div>
+            </div>
+          )}
+
+          {/* Attendance checkout prompt */}
+          {checkoutNeeded && !checkoutDone && (
+            <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 mb-4">
+              <p className="text-sm text-indigo-700 font-medium mb-2">📍 Attendance checkout required</p>
+              <button
+                onClick={() => router.push(`/employee/checkout/${shiftId}`)}
+                className="w-full bg-indigo-600 text-white rounded-lg py-2.5 text-sm font-medium
+                           hover:bg-indigo-700 transition-colors"
+              >
+                📍 CHECK OUT
+              </button>
+            </div>
+          )}
+
+          {checkoutDone && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
+              <p className="text-sm text-green-700">✓ Attendance checkout complete</p>
             </div>
           )}
 

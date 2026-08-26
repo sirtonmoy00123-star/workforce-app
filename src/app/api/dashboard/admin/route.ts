@@ -45,6 +45,14 @@ export async function GET() {
       submittedTimesheets = count || 0;
     }
 
+    // Attendance needing review
+    const { count: attendanceReview } = await adminClient
+      .from("attendance_records")
+      .select("*", { count: "exact", head: true })
+      .eq("business_id", ctx.businessId)
+      .eq("requires_review", true)
+      .eq("verification_status", "NEEDS_REVIEW");
+
     // Unpaid payments
     let unpaidPayments = 0;
     let unpaidAmount = 0;
@@ -66,6 +74,7 @@ export async function GET() {
       submittedTimesheets,
       unpaidPayments,
       unpaidAmount,
+      attendanceReview: attendanceReview || 0,
     });
   } catch (err) {
     return handleTenantError(err);

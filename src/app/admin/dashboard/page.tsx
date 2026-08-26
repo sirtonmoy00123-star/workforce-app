@@ -11,6 +11,7 @@ interface DashboardStats {
   submittedTimesheets: number;
   unpaidPayments: number;
   unpaidAmount: number;
+  attendanceReview: number;
 }
 
 interface UpcomingEvent {
@@ -94,6 +95,25 @@ export default function AdminDashboardPage() {
         </Link>
       </div>
 
+      {/* Attendance Review */}
+      {(stats?.attendanceReview || 0) > 0 && (
+        <Link
+          href="/admin/attendance"
+          className="block bg-amber-50 rounded-xl border border-amber-200 p-4 mb-4 hover:border-amber-400 transition-colors"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">⚠</span>
+              <h2 className="font-semibold text-amber-800">Attendance Review</h2>
+            </div>
+            <span className="text-2xl font-bold text-amber-600">{stats!.attendanceReview}</span>
+          </div>
+          <div className="text-xs text-amber-600 mt-1">
+            {stats!.attendanceReview} record{stats!.attendanceReview !== 1 ? "s" : ""} need{stats!.attendanceReview === 1 ? "s" : ""} review
+          </div>
+        </Link>
+      )}
+
       {/* Today's Shifts */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
         <div className="flex items-center justify-between">
@@ -176,6 +196,12 @@ export default function AdminDashboardPage() {
           className="block bg-purple-50 rounded-lg p-3 text-sm font-medium text-purple-700 hover:bg-purple-100 transition-colors"
         >
           💰 Manage Payments
+        </Link>
+        <Link
+          href="/admin/attendance"
+          className="block bg-amber-50 rounded-lg p-3 text-sm font-medium text-amber-700 hover:bg-amber-100 transition-colors"
+        >
+          📍 Attendance Review
         </Link>
         <Link
           href="/admin/task-proof-templates"

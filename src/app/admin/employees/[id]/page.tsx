@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import StatusBadge from "@/components/StatusBadge";
 
 interface Employee {
@@ -47,7 +48,7 @@ export default function EmployeeDetailPage() {
   const router = useRouter();
   const id = params.id as string;
 
-  const [tab, setTab] = useState<"details" | "availability">("details");
+  const [tab, setTab] = useState<"details" | "availability" | "attendance">("details");
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -76,6 +77,22 @@ export default function EmployeeDetailPage() {
   const [loadingAvail, setLoadingAvail] = useState(false);
   const [savingAvail, setSavingAvail] = useState(false);
 
+  // Attendance state
+  interface AttendanceSummary {
+    scheduled: number; present: number; late: number; absent: number;
+    earlyDepartures: number; lateFinishes: number; needsReview: number;
+    totalLateMinutes: number; approvedExtraMinutes: number; attendanceRate: number;
+  }
+  interface AttendanceDailyRecord {
+    shift_id: string; date: string; scheduled_start: string; scheduled_finish: string;
+    location: string | null; checkin_time: string | null; checkout_time: string | null;
+    checkin_status: string; checkout_status: string; verification_status: string;
+    exceptions: { type: string; minutes: number | null; status: string }[];
+  }
+  const [attSummary, setAttSummary] = useState<AttendanceSummary | null>(null);
+  const [attRecords, setAttRecords] = useState<AttendanceDailyRecord[]>([]);
+  const [loadingAtt, setLoadingAtt] = useState(false);
+
   useEffect(() => {
     fetch(`/api/employees/${id}`)
       .then((res) => res.json())
@@ -102,6 +119,27 @@ export default function EmployeeDetailPage() {
         setLoading(false);
       });
   }, [id]);
+
+  // Load attendance when tab switches
+  useEffect(() => {
+    if (tab === "attendance") {
+      setLoadingAtt(true);
+      const now = new Date();
+      const pad = (n: number) => n.toString().padStart(2, "0");
+      const firstDay = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
+      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      const endDate = `${lastDay.getFullYear()}-${pad(lastDay.getMonth() + 1)}-${pad(lastDay.getDate())}`;
+
+      fetch(`/api/attendance/reports?startDate=${firstDay}&endDate=${endDate}&employeeId=${id}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.summary) setAttSummary(data.summary);
+          if (data.records) setAttRecords(data.records);
+          setLoadingAtt(false);
+        })
+        .catch(() => setLoadingAtt(false));
+    }
+  }, [tab, id]);
 
   // Load availability when tab switches
   useEffect(() => {
@@ -283,6 +321,14 @@ export default function EmployeeDetailPage() {
           }`}
         >
           Availability
+        </button>
+        <button
+          onClick={() => setTab("attendance")}
+          className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
+            tab === "attendance" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          Attendance
         </button>
       </div>
 
@@ -538,6 +584,134 @@ export default function EmployeeDetailPage() {
             </div>
           </div>
         </>
+      )}
+
+      {/* Attendance Tab */}
+      {tab === "attendance" && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-700">Attendance</h2>
+              <p className="text-xs text-gray-400">
+                {new Date().toLocaleDateString("en-AU", { month: "long", year: "numeric" })}
+              </p>
+            </div>
+            <Link
+              href={`/admin/attendance/reports?employeeId=${id}`}
+              className="text-xs text-blue-600 hover:underline"
+            >
+              Full Report →
+            </Link>
+          </div>
+
+          {loadingAtt ? (
+            <div className="text-center py-8 text-gray-500">Loading…</div>
+          ) : attSummary ? (
+            <div className="space-y-4">
+              {/* Summary Grid */}
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="flex justify-between p-2 bg-gray-50 rounded-lg">
+                  <span className="text-gray-500">Scheduled</span>
+                  <span className="font-medium">{attSummary.scheduled}</span>
+                </div>
+                <div className="flex justify-between p-2 bg-green-50 rounded-lg">
+                  <span className="text-green-700">Present</span>
+                  <span className="font-medium text-green-700">{attSummary.present}</span>
+                </div>
+                <div className="flex justify-between p-2 bg-amber-50 rounded-lg">
+                  <span className="text-amber-700">Late</span>
+                  <span className="font-medium text-amber-700">{attSummary.late}</span>
+                </div>
+                <div className="flex justify-between p-2 bg-red-50 rounded-lg">
+                  <span className="text-red-700">Absent</span>
+                  <span className="font-medium text-red-700">{attSummary.absent}</span>
+                </div>
+                <div className="flex justify-between p-2 bg-amber-50 rounded-lg">
+                  <span className="text-amber-700">Early Dep.</span>
+                  <span className="font-medium text-amber-700">{attSummary.earlyDepartures}</span>
+                </div>
+                <div className="flex justify-between p-2 bg-orange-50 rounded-lg">
+                  <span className="text-orange-700">Review</span>
+                  <span className="font-medium text-orange-700">{attSummary.needsReview}</span>
+                </div>
+              </div>
+
+              {/* Attendance Rate */}
+              <div className="flex items-center justify-between py-2 border-t border-gray-100">
+                <span className="text-sm text-gray-500">Attendance Rate</span>
+                <span className={`text-lg font-bold ${
+                  attSummary.attendanceRate >= 90 ? "text-green-600" :
+                  attSummary.attendanceRate >= 75 ? "text-amber-600" : "text-red-600"
+                }`}>
+                  {attSummary.attendanceRate}%
+                </span>
+              </div>
+
+              {attSummary.totalLateMinutes > 0 && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-500">Total Late</span>
+                  <span className="font-medium text-amber-600">
+                    {Math.floor(attSummary.totalLateMinutes / 60) > 0
+                      ? `${Math.floor(attSummary.totalLateMinutes / 60)}h ${attSummary.totalLateMinutes % 60}m`
+                      : `${attSummary.totalLateMinutes}m`}
+                  </span>
+                </div>
+              )}
+
+              {attSummary.approvedExtraMinutes > 0 && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-500">Approved Extra Time</span>
+                  <span className="font-medium text-green-600">
+                    {Math.floor(attSummary.approvedExtraMinutes / 60) > 0
+                      ? `${Math.floor(attSummary.approvedExtraMinutes / 60)}h ${attSummary.approvedExtraMinutes % 60}m`
+                      : `${attSummary.approvedExtraMinutes}m`}
+                  </span>
+                </div>
+              )}
+
+              {/* Daily Records */}
+              {attRecords.length > 0 && (
+                <div className="border-t border-gray-100 pt-3">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2">Daily History</h3>
+                  <div className="space-y-2">
+                    {attRecords.slice(0, 10).map((rec) => {
+                      const dateStr = new Date(rec.date + "T00:00:00").toLocaleDateString("en-AU", {
+                        weekday: "short", day: "numeric", month: "short",
+                      });
+                      const fmtTime = (iso: string) =>
+                        new Date(iso).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit", hour12: true });
+
+                      return (
+                        <div key={rec.shift_id} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+                          <div>
+                            <span className="text-sm font-medium text-gray-700">{dateStr}</span>
+                            <div className="text-xs text-gray-400">
+                              {rec.checkin_time ? `📥 ${fmtTime(rec.checkin_time)}` : "📥 —"}
+                              {" · "}
+                              {rec.checkout_time ? `📤 ${fmtTime(rec.checkout_time)}` : "📤 —"}
+                            </div>
+                          </div>
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                            rec.checkin_status === "PRESENT" ? "text-green-700 bg-green-50" :
+                            rec.checkin_status === "LATE" ? "text-amber-700 bg-amber-50" :
+                            rec.checkin_status === "NEEDS_REVIEW" ? "text-red-700 bg-red-50" :
+                            "text-gray-500 bg-gray-50"
+                          }`}>
+                            {rec.checkin_status === "PRESENT" ? "✓" :
+                             rec.checkin_status === "LATE" ? "⚠ Late" :
+                             rec.checkin_status === "NEEDS_REVIEW" ? "⚠ Review" : "○"}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-gray-400">No attendance data this month.</div>
+          )}
+        </div>
       )}
 
       {/* Availability Tab */}

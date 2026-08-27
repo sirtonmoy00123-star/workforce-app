@@ -47,18 +47,57 @@ export async function GET(
       .eq("shift_id", timesheet.shift_id)
       .order("server_timestamp", { ascending: true });
 
-    // Get shift info
+    // Get shift info (include scheduled times and shift_attendance)
     const { data: shift } = await adminClient
       .from("shifts")
-      .select("location, instructions")
+      .select("location, instructions, scheduled_start, scheduled_finish")
       .eq("id", timesheet.shift_id)
       .single();
+
+    // Get shift_attendance record (actual work start/finish)
+    const { data: shiftAttendance } = await adminClient
+      .from("shift_attendance")
+      .select("actual_start, actual_finish, attendance_status")
+      .eq("shift_id", timesheet.shift_id)
+      .maybeSingle();
+
+    // Get attendance record for this shift (check-in/out verification)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: attendanceRecord } = await adminClient
+      .from("attendance_records")
+      .select(
+        "id, checkin_status, checkout_status, actual_checkin, actual_checkout, " +
+        "qr_verified, checkin_distance_metres, checkout_distance_metres, " +
+        "selfie_photo_path, site_photo_path, verification_status, requires_review, " +
+        "approved_start, approved_finish, reviewed_at, review_note"
+      )
+      .eq("shift_id", timesheet.shift_id)
+      .eq("business_id", ctx.businessId)
+      .maybeSingle() as { data: Record<string, unknown> | null };
+
+    // Get attendance exceptions if attendance record exists
+    let attendanceExceptions: { id: string; exception_type: string; difference_minutes: number | null; difference_metres: number | null; status: string }[] = [];
+    if (attendanceRecord) {
+      const { data: exceptions } = await adminClient
+        .from("attendance_exceptions")
+        .select("id, exception_type, difference_minutes, difference_metres, status")
+        .eq("attendance_record_id", attendanceRecord.id as string);
+      attendanceExceptions = exceptions || [];
+    }
 
     return NextResponse.json({
       ...timesheet,
       employee: employee ? { full_name: employee.full_name, employee_number: employee.employee_number } : null,
       odometer_submissions: odometerSubmissions || [],
       shift_location: shift?.location || null,
+      shift_scheduled_start: shift?.scheduled_start || null,
+      shift_scheduled_finish: shift?.scheduled_finish || null,
+      shift_work_start: shiftAttendance?.actual_start || null,
+      shift_work_finish: shiftAttendance?.actual_finish || null,
+      attendance: attendanceRecord ? {
+        ...attendanceRecord,
+        exceptions: attendanceExceptions,
+      } : null,
     });
   } catch (err) {
     return handleTenantError(err);

@@ -2,7 +2,36 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import StatusBadge from "@/components/StatusBadge";
+
+interface AttendanceExceptionInfo {
+  id: string;
+  exception_type: string;
+  difference_minutes: number | null;
+  difference_metres: number | null;
+  status: string;
+}
+
+interface AttendanceInfo {
+  id: string;
+  checkin_status: string;
+  checkout_status: string;
+  actual_checkin: string | null;
+  actual_checkout: string | null;
+  qr_verified: boolean;
+  checkin_distance_metres: number | null;
+  checkout_distance_metres: number | null;
+  selfie_photo_path: string | null;
+  site_photo_path: string | null;
+  verification_status: string;
+  requires_review: boolean;
+  approved_start: string | null;
+  approved_finish: string | null;
+  reviewed_at: string | null;
+  review_note: string | null;
+  exceptions: AttendanceExceptionInfo[];
+}
 
 interface TimesheetDetail {
   id: string;
@@ -26,6 +55,11 @@ interface TimesheetDetail {
   created_at: string;
   employee?: { full_name: string; employee_number: string } | null;
   shift_location: string | null;
+  shift_scheduled_start: string | null;
+  shift_scheduled_finish: string | null;
+  shift_work_start: string | null;
+  shift_work_finish: string | null;
+  attendance: AttendanceInfo | null;
   odometer_submissions: Array<{
     id: string;
     submission_type: string;
@@ -401,9 +435,9 @@ export default function AdminTimesheetDetailPage() {
         {/* ── Normal Timesheet View (not comparison) ── */}
         {!showComparisonView && (
           <>
-            {/* Shift Info */}
+            {/* Roster (Scheduled) */}
             <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
-              <h2 className="font-semibold text-gray-900">Shift Details</h2>
+              <h2 className="font-semibold text-gray-900">📅 Roster</h2>
               <div className="flex justify-between">
                 <span className="text-gray-500">Date</span>
                 <span className="font-medium">{formatDateTime(timesheet.actual_start)}</span>
@@ -414,12 +448,6 @@ export default function AdminTimesheetDetailPage() {
                   {formatTime(timesheet.scheduled_start)} – {formatTime(timesheet.scheduled_finish)}
                 </span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Actual</span>
-                <span className="font-medium">
-                  {formatTime(timesheet.actual_start)} – {formatTime(timesheet.actual_finish)}
-                </span>
-              </div>
               {timesheet.shift_location && (
                 <div className="flex justify-between">
                   <span className="text-gray-500">Location</span>
@@ -427,6 +455,158 @@ export default function AdminTimesheetDetailPage() {
                 </div>
               )}
             </div>
+
+            {/* Attendance */}
+            <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold text-gray-900">📋 Attendance</h2>
+                {timesheet.attendance ? (
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                    timesheet.attendance.verification_status === "VERIFIED"
+                      ? "text-green-700 bg-green-100"
+                      : timesheet.attendance.verification_status === "REJECTED"
+                      ? "text-red-700 bg-red-100"
+                      : timesheet.attendance.verification_status === "NEEDS_REVIEW"
+                      ? "text-amber-700 bg-amber-100"
+                      : "text-gray-600 bg-gray-100"
+                  }`}>
+                    {timesheet.attendance.verification_status === "VERIFIED" ? "✓ Verified" :
+                     timesheet.attendance.verification_status === "REJECTED" ? "✗ Rejected" :
+                     timesheet.attendance.verification_status === "NEEDS_REVIEW" ? "⏳ Needs Review" :
+                     "○ Pending"}
+                  </span>
+                ) : (
+                  <span className="text-xs text-gray-400">No record</span>
+                )}
+              </div>
+
+              {timesheet.attendance ? (
+                <>
+                  {/* Check-In */}
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Check-In</span>
+                    <span className="font-medium">
+                      {timesheet.attendance.actual_checkin
+                        ? formatTime(timesheet.attendance.actual_checkin)
+                        : "—"}
+                      {timesheet.attendance.checkin_status === "LATE" && (
+                        <span className="ml-1 text-amber-600 text-xs">(Late)</span>
+                      )}
+                    </span>
+                  </div>
+
+                  {/* Check-Out */}
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Check-Out</span>
+                    <span className="font-medium">
+                      {timesheet.attendance.actual_checkout
+                        ? formatTime(timesheet.attendance.actual_checkout)
+                        : "—"}
+                      {timesheet.attendance.checkout_status === "EARLY_DEPARTURE" && (
+                        <span className="ml-1 text-amber-600 text-xs">(Early)</span>
+                      )}
+                      {timesheet.attendance.checkout_status === "LATE_DEPARTURE" && (
+                        <span className="ml-1 text-amber-600 text-xs">(Late)</span>
+                      )}
+                    </span>
+                  </div>
+
+                  {/* Verification items */}
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">QR</span>
+                    <span className={`font-medium ${timesheet.attendance.qr_verified ? "text-green-600" : "text-gray-400"}`}>
+                      {timesheet.attendance.qr_verified ? "✓ Verified" : "—"}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">GPS</span>
+                    <span className="font-medium">
+                      {timesheet.attendance.checkin_distance_metres != null
+                        ? `✓ ${timesheet.attendance.checkin_distance_metres}m`
+                        : "—"}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Selfie</span>
+                    <span className={`font-medium ${timesheet.attendance.selfie_photo_path ? "text-green-600" : "text-gray-400"}`}>
+                      {timesheet.attendance.selfie_photo_path ? "✓ Submitted" : "—"}
+                    </span>
+                  </div>
+
+                  {/* Exceptions */}
+                  {timesheet.attendance.exceptions.length > 0 && (
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {timesheet.attendance.exceptions.map((exc) => (
+                        <span
+                          key={exc.id}
+                          className={`text-xs px-2 py-0.5 rounded-full ${
+                            exc.status === "PENDING"
+                              ? "bg-amber-100 text-amber-700"
+                              : exc.status === "APPROVED"
+                              ? "bg-green-100 text-green-700"
+                              : "bg-red-100 text-red-700"
+                          }`}
+                        >
+                          {exc.exception_type === "LATE_ARRIVAL" ? `${exc.difference_minutes || 0}m late` :
+                           exc.exception_type === "EARLY_DEPARTURE" ? `Left ${exc.difference_minutes || 0}m early` :
+                           exc.exception_type === "LATE_DEPARTURE" ? `${exc.difference_minutes || 0}m overtime` :
+                           exc.exception_type === "GPS_OUT_OF_RANGE" ? `GPS ${exc.difference_metres || 0}m` :
+                           exc.exception_type.replace(/_/g, " ")}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* View Evidence link */}
+                  <Link
+                    href={`/admin/attendance/${timesheet.attendance.id}`}
+                    className="block w-full bg-blue-50 text-blue-700 rounded-lg py-2 text-xs font-medium hover:bg-blue-100 transition-colors text-center mt-1"
+                  >
+                    👁 View Attendance Evidence
+                  </Link>
+                </>
+              ) : (
+                <p className="text-gray-400 text-xs italic">No attendance record for this shift.</p>
+              )}
+            </div>
+
+            {/* Shift Work Times (separate from attendance) */}
+            <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
+              <h2 className="font-semibold text-gray-900">⏱ Shift</h2>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Start</span>
+                <span className="font-medium">{formatTime(timesheet.actual_start)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Finish</span>
+                <span className="font-medium">{formatTime(timesheet.actual_finish)}</span>
+              </div>
+            </div>
+
+            {/* Approved Payable Time */}
+            {timesheet.attendance && (timesheet.attendance.approved_start || timesheet.attendance.approved_finish) && (
+              <div className="bg-green-50 rounded-lg p-4 space-y-2 text-sm border border-green-200">
+                <h2 className="font-semibold text-green-900">✓ Approved Payable Time</h2>
+                <div className="flex justify-between">
+                  <span className="text-green-700">Start</span>
+                  <span className="font-medium text-green-900">
+                    {timesheet.attendance.approved_start
+                      ? formatTime(timesheet.attendance.approved_start)
+                      : formatTime(timesheet.actual_start)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-green-700">Finish</span>
+                  <span className="font-medium text-green-900">
+                    {timesheet.attendance.approved_finish
+                      ? formatTime(timesheet.attendance.approved_finish)
+                      : formatTime(timesheet.actual_finish)}
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* Task Proof */}
             {proofReqs.length > 0 && (

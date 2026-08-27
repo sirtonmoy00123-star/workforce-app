@@ -30,10 +30,20 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Shift not found." }, { status: 404 });
     }
 
-    // Get existing attendance record (if any)
+    // Employee isolation: non-admin can only see their own shift's attendance
+    const isAdmin = ctx.role === "OWNER" || ctx.role === "ADMIN";
+    if (!isAdmin && ctx.employeeId && shift.employee_id !== ctx.employeeId) {
+      return NextResponse.json({ error: "This shift is not assigned to you." }, { status: 403 });
+    }
+
+    // Get existing attendance record (if any) — select only needed fields, no internal paths
     const { data: record } = await adminClient
       .from("attendance_records")
-      .select("*")
+      .select(
+        "id, shift_id, employee_id, checkin_status, checkout_status, " +
+        "actual_checkin, actual_checkout, qr_verified, " +
+        "verification_status, requires_review, approved_start, approved_finish"
+      )
       .eq("shift_id", shiftId)
       .eq("business_id", ctx.businessId)
       .single();

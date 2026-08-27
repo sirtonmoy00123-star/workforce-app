@@ -1452,6 +1452,7 @@ export default function RosterPage() {
                           s.status === "updated_pending" ? "text-amber-700" :
                           s.status === "declined" ? "text-red-600" :
                           s.status === "working" ? "text-purple-600" : "text-gray-500";
+                        const attInd = getAttendanceIndicator(s.id);
 
                         return (
                           <button
@@ -1477,6 +1478,9 @@ export default function RosterPage() {
                                 </div>
                                 {s.location && (
                                   <div className="text-xs text-gray-500 mt-0.5">📍 {s.location}</div>
+                                )}
+                                {attInd && (
+                                  <div className={`text-xs mt-0.5 ${attInd.color}`}>{attInd.label}</div>
                                 )}
                               </div>
                               <div className="flex items-center gap-1.5 ml-2 flex-shrink-0">

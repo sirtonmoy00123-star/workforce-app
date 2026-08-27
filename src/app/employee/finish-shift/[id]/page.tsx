@@ -218,12 +218,6 @@ export default function FinishShiftPage() {
     return `${h}h ${m}m`;
   }
 
-  if (loading) return <div className="text-center py-12 text-gray-500">Loading…</div>;
-  if (!shift) return <div className="text-center py-12 text-red-500">{error || "Shift not found."}</div>;
-
-  // Can submit: if odometer required, need photo + reading; otherwise always ready
-  const canSubmit = odometerRequired ? !!(photo && odometerReading) : true;
-
   // Check if attendance checkout is needed after shift finishes
   useEffect(() => {
     if (success && shiftId) {
@@ -253,6 +247,12 @@ export default function FinishShiftPage() {
         .catch(() => {});
     }
   }, [success, shiftId]);
+
+  if (loading) return <div className="text-center py-12 text-gray-500">Loading…</div>;
+  if (!shift) return <div className="text-center py-12 text-red-500">{error || "Shift not found."}</div>;
+
+  // Can submit: if odometer required, need photo + reading; otherwise always ready
+  const canSubmit = odometerRequired ? !!(photo && odometerReading) : true;
 
   // Success screen — show timesheet summary
   if (success) {

@@ -89,7 +89,10 @@ export function validateDynamicQrToken(
     .update(payloadB64)
     .digest("base64url");
 
-  if (!crypto.timingSafeEqual(Buffer.from(expectedSig), Buffer.from(signatureB64))) {
+  // timingSafeEqual throws if lengths differ — check first
+  const expectedBuf = Buffer.from(expectedSig);
+  const actualBuf = Buffer.from(signatureB64);
+  if (expectedBuf.length !== actualBuf.length || !crypto.timingSafeEqual(expectedBuf, actualBuf)) {
     return { valid: false, error: "Invalid QR signature." };
   }
 

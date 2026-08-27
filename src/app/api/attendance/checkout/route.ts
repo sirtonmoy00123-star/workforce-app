@@ -211,10 +211,10 @@ export async function POST(request: Request) {
     } else if (gpsOutOfRange) {
       checkoutStatus = "NEEDS_REVIEW";
       requiresReview = true;
-    } else if (minsEarly >= earlyThreshold) {
+    } else if (minsEarly > earlyThreshold) {
       checkoutStatus = "EARLY_DEPARTURE";
       requiresReview = true;
-    } else if (minsLate >= lateThreshold) {
+    } else if (minsLate > lateThreshold) {
       checkoutStatus = "LATE_DEPARTURE";
       requiresReview = true;
     } else {
@@ -281,7 +281,7 @@ export async function POST(request: Request) {
       status: "PENDING";
     }> = [];
 
-    if (minsEarly >= earlyThreshold) {
+    if (minsEarly > earlyThreshold) {
       exceptions.push({
         business_id: ctx.businessId,
         attendance_record_id: record.id,
@@ -293,7 +293,7 @@ export async function POST(request: Request) {
       });
     }
 
-    if (minsLate >= lateThreshold) {
+    if (minsLate > lateThreshold) {
       exceptions.push({
         business_id: ctx.businessId,
         attendance_record_id: record.id,
@@ -351,8 +351,8 @@ export async function POST(request: Request) {
       qrVerified: qrVerifiedCheckout,
       minsEarly: minsEarly > 0 ? minsEarly : 0,
       minsLate: minsLate > 0 ? minsLate : 0,
-      earlyDeparture: minsEarly > earlyThreshold,
-      lateDeparture: minsLate > lateThreshold,
+      earlyDeparture: minsEarly > earlyThreshold,  // consistent: strict >
+      lateDeparture: minsLate > lateThreshold,    // consistent: strict >
       requiresReview,
       locationName: location.name,
       checkoutSelfiePath,

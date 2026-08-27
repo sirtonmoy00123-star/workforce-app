@@ -107,6 +107,23 @@ export async function POST(request: NextRequest) {
     const totalHours = Math.round((totalMinutes / 60) * 100) / 100;
     const totalAmount = Math.round((totalWages + totalMileageAmount) * 100) / 100;
 
+    // Check that none of these timesheets are already linked to a payment
+    const timesheetIds = timesheets.map((ts) => ts.id);
+    // payment_id is not in generated Supabase types yet (added in migration 018)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: existingPaymentLinks } = await (adminClient as any)
+      .from("timesheets")
+      .select("id, payment_id")
+      .in("id", timesheetIds)
+      .not("payment_id", "is", null);
+
+    if (existingPaymentLinks && existingPaymentLinks.length > 0) {
+      return NextResponse.json(
+        { error: `${existingPaymentLinks.length} timesheet(s) are already linked to another payment.` },
+        { status: 400 }
+      );
+    }
+
     const { data: payment, error } = await adminClient
       .from("payments")
       .insert({
@@ -127,6 +144,13 @@ export async function POST(request: NextRequest) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    // Link timesheets to the payment to prevent double-counting
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (adminClient as any)
+      .from("timesheets")
+      .update({ payment_id: payment.id })
+      .in("id", timesheetIds);
 
     return NextResponse.json(payment);
   } catch (err) {

@@ -183,21 +183,34 @@ export function requiresEmployeeReconfirmation(
     startTime: string;
     endTime: string;
     location: string | null;
+    /** Pre-computed ISO start timestamp (timezone-adjusted). When provided,
+     *  this is compared directly against original.scheduled_start instead of
+     *  building an ISO string without timezone (which causes false positives). */
+    scheduledStartISO?: string;
+    /** Pre-computed ISO finish timestamp (timezone-adjusted). */
+    scheduledFinishISO?: string;
   }
 ): boolean {
   // Date changed
   if (original.date !== updated.date) return true;
 
   // Start time changed
-  const origStartTime = new Date(original.scheduled_start).toLocaleTimeString(
-    "en-AU", { hour: "2-digit", minute: "2-digit", hour12: false }
-  );
-  const newStartISO = new Date(`${updated.date}T${updated.startTime}:00`).toISOString();
-  if (original.scheduled_start !== newStartISO) return true;
+  if (updated.scheduledStartISO) {
+    // Use timezone-adjusted ISO strings for accurate comparison
+    if (original.scheduled_start !== updated.scheduledStartISO) return true;
+  } else {
+    // Fallback: build ISO without timezone (may have false positives on Vercel UTC)
+    const newStartISO = new Date(`${updated.date}T${updated.startTime}:00`).toISOString();
+    if (original.scheduled_start !== newStartISO) return true;
+  }
 
   // Finish time changed
-  const newEndISO = new Date(`${updated.date}T${updated.endTime}:00`).toISOString();
-  if (original.scheduled_finish !== newEndISO) return true;
+  if (updated.scheduledFinishISO) {
+    if (original.scheduled_finish !== updated.scheduledFinishISO) return true;
+  } else {
+    const newEndISO = new Date(`${updated.date}T${updated.endTime}:00`).toISOString();
+    if (original.scheduled_finish !== newEndISO) return true;
+  }
 
   // Location changed (normalize nulls and empty strings)
   const origLoc = original.location || "";

@@ -473,17 +473,6 @@ async function handleUpdateShift(shiftId: string, body: any, shift: any, ctx: an
     }, { status: 409 });
   }
 
-  // Determine if reconfirmation needed
-  const needsReconfirmation = shift.status === "accepted" && requiresEmployeeReconfirmation(
-    {
-      date: shift.date,
-      scheduled_start: shift.scheduled_start,
-      scheduled_finish: shift.scheduled_finish,
-      location: shift.location,
-    },
-    { date, startTime, endTime, location }
-  );
-
   // Build new timestamps with the client's timezone offset
   const offsetMin = typeof timezoneOffsetMinutes === "number" ? timezoneOffsetMinutes : 0;
   const sign = offsetMin <= 0 ? "+" : "-";
@@ -494,6 +483,17 @@ async function handleUpdateShift(shiftId: string, body: any, shift: any, ctx: an
 
   const newScheduledStart = new Date(`${date}T${startTime}:00${tzSuffix}`).toISOString();
   const newScheduledFinish = new Date(`${date}T${endTime}:00${tzSuffix}`).toISOString();
+
+  // Determine if reconfirmation needed (using timezone-adjusted ISO strings)
+  const needsReconfirmation = shift.status === "accepted" && requiresEmployeeReconfirmation(
+    {
+      date: shift.date,
+      scheduled_start: shift.scheduled_start,
+      scheduled_finish: shift.scheduled_finish,
+      location: shift.location,
+    },
+    { date, startTime, endTime, location, scheduledStartISO: newScheduledStart, scheduledFinishISO: newScheduledFinish }
+  );
 
   // Determine new status
   type ShiftStatusType = "pending" | "accepted" | "declined" | "completed" | "cancelled" | "updated_pending";

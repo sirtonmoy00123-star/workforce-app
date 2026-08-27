@@ -50,7 +50,7 @@ CREATE POLICY notifications_admin_select ON notifications
     business_id = current_user_business_id()
     AND (
       target_role = 'admin'
-      OR target_user_id = auth.uid()
+      OR target_user_id = (SELECT id FROM public.users WHERE auth_user_id = auth.uid())
     )
   );
 
@@ -58,7 +58,7 @@ CREATE POLICY notifications_admin_select ON notifications
 CREATE POLICY notifications_employee_select ON notifications
   FOR SELECT USING (
     business_id = current_user_business_id()
-    AND target_user_id = auth.uid()
+    AND target_user_id = (SELECT id FROM public.users WHERE auth_user_id = auth.uid())
   );
 
 -- Service role handles inserts (server-side only)
@@ -68,7 +68,7 @@ CREATE POLICY notifications_update ON notifications
     business_id = current_user_business_id()
     AND (
       target_role = 'admin'
-      OR target_user_id = auth.uid()
+      OR target_user_id = (SELECT id FROM public.users WHERE auth_user_id = auth.uid())
     )
   )
   WITH CHECK (

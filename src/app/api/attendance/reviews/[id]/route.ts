@@ -167,18 +167,17 @@ export async function PUT(
     }
 
     // ── Notify employee of the review result ──
-    // Fetch the employee to get their auth user ID and name
-    const { data: empRecord } = await adminClient
+    const { data: attRecord } = await adminClient
       .from("attendance_records")
-      .select("employee_id")
+      .select("employee_id, shift_id")
       .eq("id", id)
       .single();
 
-    if (empRecord?.employee_id) {
+    if (attRecord?.employee_id) {
       const { data: emp } = await adminClient
         .from("employees")
         .select("id, full_name, user_id")
-        .eq("id", empRecord.employee_id)
+        .eq("id", attRecord.employee_id)
         .single();
 
       if (emp?.user_id) {
@@ -187,7 +186,7 @@ export async function PUT(
           businessId: ctx.businessId,
           targetUserId: emp.user_id,
           employeeId: emp.id,
-          shiftId: "",
+          shiftId: attRecord.shift_id || "",
           attendanceId: id,
           type: "ATTENDANCE_CORRECTION_RESULT",
           title: `Attendance ${resultLabel}`,

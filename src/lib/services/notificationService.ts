@@ -95,7 +95,7 @@ export async function notifyAdminException(params: {
 // Notify employee about their attendance status
 export async function notifyEmployee(params: {
   businessId: string;
-  targetUserId: string;   // the auth user id for the employee
+  targetUserId: string;   // the public.users.id for the employee
   employeeId: string;
   shiftId: string;
   attendanceId?: string;

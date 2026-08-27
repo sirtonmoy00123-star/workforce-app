@@ -26,8 +26,8 @@ CREATE POLICY "Attendance photos: upload own"
     bucket_id = 'attendance-photos'
     AND auth.uid() IS NOT NULL
     AND (
-      -- Admin/Owner can upload anywhere in the bucket
-      public.current_user_role() IN ('admin', 'owner')
+      -- Admin can upload anywhere in the bucket
+      public.current_user_role() = 'admin'
       OR
       -- Employee can only upload to their own folder
       name LIKE (
@@ -47,8 +47,8 @@ CREATE POLICY "Attendance photos: read own"
     bucket_id = 'attendance-photos'
     AND auth.uid() IS NOT NULL
     AND (
-      -- Admin/Owner can read all attendance photos
-      public.current_user_role() IN ('admin', 'owner')
+      -- Admin can read all attendance photos
+      public.current_user_role() = 'admin'
       OR
       -- Employee can only read from their own folder
       name LIKE (

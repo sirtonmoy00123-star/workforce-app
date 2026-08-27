@@ -34,6 +34,20 @@ interface UpcomingEvent {
   }[];
 }
 
+interface AttendanceRecord {
+  id: string;
+  shift_id: string;
+  employee_id: string;
+  checkin_status: string;
+  checkout_status: string;
+  actual_checkin: string | null;
+  actual_checkout: string | null;
+  checkin_distance_metres: number | null;
+  checkout_distance_metres: number | null;
+  verification_status: string;
+  requires_review: boolean;
+}
+
 interface Employee {
   id: string;
   full_name: string;
@@ -202,6 +216,7 @@ export default function RosterPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
   const [eventNameMap, setEventNameMap] = useState<Record<string, string>>({});
+  const [attendanceMap, setAttendanceMap] = useState<Record<string, AttendanceRecord>>({});
   const [loading, setLoading] = useState(true);
 
   // View mode
@@ -311,7 +326,8 @@ export default function RosterPage() {
       fetch(`/api/shifts?startDate=${startDate}&endDate=${endDate}`).then((r) => r.json()),
       fetch("/api/employees").then((r) => r.json()),
       fetch("/api/events?upcoming=true").then((r) => r.json()),
-    ]).then(([shiftsData, employeesData, eventsData]) => {
+      fetch(`/api/attendance/roster?startDate=${startDate}&endDate=${endDate}`).then((r) => r.json()).catch(() => ({ records: {} })),
+    ]).then(([shiftsData, employeesData, eventsData, attendanceData]) => {
       if (Array.isArray(shiftsData)) {
         setShifts(shiftsData);
         // Build event name map from event-linked shifts
@@ -324,6 +340,7 @@ export default function RosterPage() {
       }
       if (Array.isArray(employeesData)) setEmployees(employeesData);
       if (Array.isArray(eventsData)) setUpcomingEvents(eventsData);
+      if (attendanceData?.records) setAttendanceMap(attendanceData.records);
       setLoading(false);
     });
     // Fetch proof templates (once)
@@ -352,6 +369,58 @@ export default function RosterPage() {
   const totalShifts = shifts.length;
   const pendingCount = shifts.filter((s) => s.status === "pending" || s.status === "updated_pending").length;
   const declinedCount = shifts.filter((s) => s.status === "declined").length;
+
+  // ── Attendance indicator for roster cards ──
+  function getAttendanceIndicator(shiftId: string): { label: string; color: string } | null {
+    const att = attendanceMap[shiftId];
+    if (!att) return null;
+    if (att.checkin_status === "NOT_CHECKED_IN") {
+      return { label: "○ Not Checked In", color: "text-gray-400" };
+    }
+    if (att.requires_review || att.verification_status === "NEEDS_REVIEW") {
+      return { label: "⚠ Review", color: "text-red-600" };
+    }
+    if (att.checkin_status === "LATE") {
+      const checkin = att.actual_checkin ? new Date(att.actual_checkin) : null;
+      let minsLate = 0;
+      if (checkin) {
+        // Find the shift to calculate lateness
+        const shift = shifts.find((s) => s.id === shiftId);
+        if (shift) {
+          minsLate = Math.max(0, Math.floor((checkin.getTime() - new Date(shift.scheduled_start).getTime()) / 60_000));
+        }
+      }
+      return { label: `⚠ Late${minsLate > 0 ? ` ${minsLate}m` : ""}`, color: "text-amber-600" };
+    }
+    if (att.checkin_status === "PRESENT" || att.checkin_status === "APPROVED_MANUALLY") {
+      if (att.checkout_status === "CHECKED_OUT") {
+        return { label: "✓ In & Out", color: "text-green-600" };
+      }
+      if (att.checkout_status === "EARLY_DEPARTURE") {
+        return { label: "⚠ Early Out", color: "text-amber-600" };
+      }
+      if (att.checkout_status === "LATE_DEPARTURE") {
+        return { label: "⚠ Late Out", color: "text-amber-600" };
+      }
+      const time = att.actual_checkin
+        ? new Date(att.actual_checkin).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit", hour12: true })
+        : "";
+      return { label: `✓ In${time ? ` ${time}` : ""}`, color: "text-green-600" };
+    }
+    return null;
+  }
+
+  // ── Today's attendance summary ──
+  const todayShifts = shifts.filter((s) => s.date === today);
+  const todayAccepted = todayShifts.filter((s) => s.status === "accepted" || s.status === "completed");
+  const todayPresent = todayAccepted.filter((s) => {
+    const att = attendanceMap[s.id];
+    return att && att.checkin_status !== "NOT_CHECKED_IN";
+  });
+  const todayNotCheckedIn = todayAccepted.filter((s) => {
+    const att = attendanceMap[s.id];
+    return !att || att.checkin_status === "NOT_CHECKED_IN";
+  });
 
   // ── Close bottom sheet ──
   function closeSheet() {
@@ -1095,6 +1164,23 @@ export default function RosterPage() {
         </div>
       </div>
 
+      {/* ── Today's Attendance Summary ── */}
+      {todayShifts.length > 0 && (
+        <div className="bg-white rounded-lg border border-gray-200 px-4 py-3 mb-4">
+          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Today&apos;s Attendance</div>
+          <div className="flex items-center gap-4 text-sm">
+            <span className="text-gray-900 font-semibold">{todayAccepted.length} Rostered</span>
+            <span className="text-green-600 font-medium">✓ {todayPresent.length} Present</span>
+            {todayNotCheckedIn.length > 0 && (
+              <span className="text-amber-600 font-medium">⚠ {todayNotCheckedIn.length} Not In</span>
+            )}
+            {todayNotCheckedIn.length === 0 && todayAccepted.length > 0 && (
+              <span className="text-green-600">All checked in</span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Upcoming Events ── */}
       {upcomingEvents.length > 0 && (
         <div className="bg-white rounded-lg border border-gray-200 px-4 py-3 mb-4">
@@ -1204,19 +1290,27 @@ export default function RosterPage() {
                         {dayShifts.length === 0 ? (
                           <span className="text-sm text-gray-400">Off</span>
                         ) : (
-                          dayShifts.map((s) => (
+                          dayShifts.map((s) => {
+                            const attInd = getAttendanceIndicator(s.id);
+                            return (
                             <button
                               key={s.id}
                               onClick={() => openShift(s)}
-                              className="w-full text-left flex items-center justify-between text-sm py-1"
+                              className="w-full text-left text-sm py-1"
                             >
-                              <span>
-                                {formatTime(s.scheduled_start)} – {formatTime(s.scheduled_finish)}
-                                {s.location && <span className="text-gray-500 ml-1">· {s.location}</span>}
-                              </span>
-                              <StatusBadge status={s.status} />
+                              <div className="flex items-center justify-between">
+                                <span>
+                                  {formatTime(s.scheduled_start)} – {formatTime(s.scheduled_finish)}
+                                  {s.location && <span className="text-gray-500 ml-1">· {s.location}</span>}
+                                </span>
+                                <StatusBadge status={s.status} />
+                              </div>
+                              {attInd && (
+                                <div className={`text-xs mt-0.5 ${attInd.color}`}>{attInd.label}</div>
+                              )}
                             </button>
-                          ))
+                            );
+                          })
                         )}
                       </div>
                     );
@@ -1258,7 +1352,9 @@ export default function RosterPage() {
                             {dayShifts.length === 0 ? (
                               <span className="text-gray-300 text-xs">OFF</span>
                             ) : (
-                              dayShifts.map((s) => (
+                              dayShifts.map((s) => {
+                                const attInd = getAttendanceIndicator(s.id);
+                                return (
                                 <button
                                   key={s.id}
                                   onClick={() => openShift(s)}
@@ -1280,8 +1376,12 @@ export default function RosterPage() {
                                     <div className="text-xs text-gray-500 truncate">{s.location}</div>
                                   )}
                                   <StatusBadge status={s.status} />
+                                  {attInd && (
+                                    <div className={`text-xs mt-0.5 ${attInd.color}`}>{attInd.label}</div>
+                                  )}
                                 </button>
-                              ))
+                                );
+                              })
                             )}
                           </td>
                         );
@@ -1476,6 +1576,65 @@ export default function RosterPage() {
                         </div>
                       )}
                     </div>
+
+                    {/* Attendance Section */}
+                    {(() => {
+                      const att = attendanceMap[selectedShift.id];
+                      if (!att) return null;
+                      return (
+                        <div className="bg-gray-50 rounded-xl p-4 space-y-2 mb-4">
+                          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">📍 Attendance</h3>
+                          <div className="text-sm space-y-1">
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">Check-In</span>
+                              <span className={`font-medium ${
+                                att.checkin_status === "PRESENT" || att.checkin_status === "APPROVED_MANUALLY" ? "text-green-600" :
+                                att.checkin_status === "LATE" ? "text-amber-600" :
+                                att.checkin_status === "NEEDS_REVIEW" ? "text-red-600" :
+                                "text-gray-400"
+                              }`}>
+                                {att.checkin_status === "NOT_CHECKED_IN" && "○ Not Checked In"}
+                                {att.checkin_status === "PRESENT" && `✓ ${att.actual_checkin ? formatTime(att.actual_checkin) : "Present"}`}
+                                {att.checkin_status === "LATE" && `⚠ Late ${att.actual_checkin ? formatTime(att.actual_checkin) : ""}`}
+                                {att.checkin_status === "APPROVED_MANUALLY" && `✓ Approved ${att.actual_checkin ? formatTime(att.actual_checkin) : ""}`}
+                                {att.checkin_status === "NEEDS_REVIEW" && "⚠ Needs Review"}
+                              </span>
+                            </div>
+                            {att.checkin_distance_metres != null && (
+                              <div className="flex justify-between">
+                                <span className="text-gray-500">GPS</span>
+                                <span className={`font-medium ${att.checkin_distance_metres <= 100 ? "text-green-600" : "text-amber-600"}`}>
+                                  {att.checkin_distance_metres}m
+                                </span>
+                              </div>
+                            )}
+                            {att.checkout_status && att.checkout_status !== "NOT_CHECKED_OUT" && (
+                              <div className="flex justify-between">
+                                <span className="text-gray-500">Check-Out</span>
+                                <span className={`font-medium ${
+                                  att.checkout_status === "CHECKED_OUT" ? "text-green-600" :
+                                  att.checkout_status === "EARLY_DEPARTURE" || att.checkout_status === "LATE_DEPARTURE" ? "text-amber-600" :
+                                  "text-red-600"
+                                }`}>
+                                  {att.checkout_status === "CHECKED_OUT" && `✓ ${att.actual_checkout ? formatTime(att.actual_checkout) : "Out"}`}
+                                  {att.checkout_status === "EARLY_DEPARTURE" && `⚠ Early ${att.actual_checkout ? formatTime(att.actual_checkout) : ""}`}
+                                  {att.checkout_status === "LATE_DEPARTURE" && `⚠ Late ${att.actual_checkout ? formatTime(att.actual_checkout) : ""}`}
+                                  {att.checkout_status === "NEEDS_REVIEW" && "⚠ Review"}
+                                </span>
+                              </div>
+                            )}
+                            {att.requires_review && (
+                              <Link
+                                href={`/admin/attendance/${att.id}`}
+                                className="block text-xs text-amber-600 bg-amber-50 rounded-lg p-2 mt-2 hover:bg-amber-100 transition-colors text-center font-medium"
+                              >
+                                ⚠ Review Attendance →
+                              </Link>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Task Proof Section */}
                     {shiftProofReqs.length > 0 && (

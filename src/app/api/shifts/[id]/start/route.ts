@@ -50,6 +50,32 @@ export async function POST(
       return NextResponse.json({ error: "This shift has already been started." }, { status: 400 });
     }
 
+    // Check attendance check-in requirement: if location has attendance enabled, must check in first
+    if (shift.location_id) {
+      const { data: attSettings } = await adminClient
+        .from("attendance_settings")
+        .select("attendance_required")
+        .eq("location_id", shift.location_id)
+        .eq("business_id", ctx.businessId)
+        .single();
+
+      if (attSettings?.attendance_required) {
+        const { data: attRecord } = await adminClient
+          .from("attendance_records")
+          .select("checkin_status")
+          .eq("shift_id", shiftId)
+          .eq("business_id", ctx.businessId)
+          .maybeSingle();
+
+        if (!attRecord || attRecord.checkin_status === "NOT_CHECKED_IN") {
+          return NextResponse.json(
+            { error: "You must check in before starting this shift." },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
     // Check odometer requirement: per-shift override > employee default
     const { data: employee } = await adminClient
       .from("employees")

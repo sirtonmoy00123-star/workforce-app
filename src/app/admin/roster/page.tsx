@@ -628,7 +628,7 @@ export default function RosterPage() {
           changeNotes,
           overrideReason: overrideReason || undefined,
           timezoneOffsetMinutes: new Date().getTimezoneOffset(),
-          requireOdometer: editOdometerEnabled || undefined,
+          requireOdometer: editOdometerEnabled,
         }),
       });
       const data = await res.json();
@@ -670,7 +670,7 @@ export default function RosterPage() {
                 location: editLocation || null,
                 instructions: editInstructions || null,
                 status: data.status,
-                require_odometer: editOdometerEnabled || null,
+                require_odometer: editOdometerEnabled,
               }
             : s
         )
@@ -861,7 +861,7 @@ export default function RosterPage() {
             location: createLocation,
             instructions: createInstructions,
             overrideAvailability: true,
-            requireOdometer: odometerEnabled || undefined,
+            requireOdometer: odometerEnabled,
             timezoneOffsetMinutes: new Date().getTimezoneOffset(),
           }),
         });
@@ -892,7 +892,7 @@ export default function RosterPage() {
             customEndDate: recurrenceType === "WEEKLY_CUSTOM_END" ? customEndDate : undefined,
             assignments: null,
             saveAsDraft: false,
-            requireOdometer: odometerEnabled || undefined,
+            requireOdometer: odometerEnabled,
             timezoneOffsetMinutes: new Date().getTimezoneOffset(),
           }),
         });

@@ -659,20 +659,31 @@ export default function ShiftDetailPage() {
         )}
 
         {/* Start Shift button — only for accepted shifts that haven't been started */}
-        {shift.status === "accepted" && !isWorking && (
-          <button
-            onClick={() => router.push(`/employee/start-shift/${shift.id}`)}
-            className={`w-full mt-6 bg-blue-600 text-white rounded-lg py-3 text-base font-bold
-                       hover:bg-blue-700 transition-colors ${
-                         attendanceInfo?.attendanceRequired &&
-                         (!attendanceInfo.record || attendanceInfo.record.checkin_status === "NOT_CHECKED_IN")
-                           ? "opacity-50"
-                           : ""
-                       }`}
-          >
-            START SHIFT
-          </button>
-        )}
+        {shift.status === "accepted" && !isWorking && (() => {
+          const needsCheckin = attendanceInfo?.attendanceRequired &&
+            (!attendanceInfo.record || attendanceInfo.record.checkin_status === "NOT_CHECKED_IN");
+          return (
+            <>
+              {needsCheckin && (
+                <p className="mt-4 text-center text-sm text-amber-600 font-medium">
+                  ⚠ You must check in before starting this shift
+                </p>
+              )}
+              <button
+                onClick={() => router.push(`/employee/start-shift/${shift.id}`)}
+                disabled={!!needsCheckin}
+                className={`w-full mt-3 bg-blue-600 text-white rounded-lg py-3 text-base font-bold
+                           transition-colors ${
+                             needsCheckin
+                               ? "opacity-50 cursor-not-allowed"
+                               : "hover:bg-blue-700"
+                           }`}
+              >
+                START SHIFT
+              </button>
+            </>
+          );
+        })()}
 
         {/* Finish Shift button — only when actively working */}
         {isWorking && (

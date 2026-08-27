@@ -692,12 +692,12 @@ export default function EmployeeDetailPage() {
                             </div>
                           </div>
                           <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                            rec.checkin_status === "PRESENT" ? "text-green-700 bg-green-50" :
+                            rec.checkin_status === "PRESENT" || rec.checkin_status === "APPROVED_MANUALLY" ? "text-green-700 bg-green-50" :
                             rec.checkin_status === "LATE" ? "text-amber-700 bg-amber-50" :
                             rec.checkin_status === "NEEDS_REVIEW" ? "text-red-700 bg-red-50" :
                             "text-gray-500 bg-gray-50"
                           }`}>
-                            {rec.checkin_status === "PRESENT" ? "✓" :
+                            {rec.checkin_status === "PRESENT" || rec.checkin_status === "APPROVED_MANUALLY" ? "✓" :
                              rec.checkin_status === "LATE" ? "⚠ Late" :
                              rec.checkin_status === "NEEDS_REVIEW" ? "⚠ Review" : "○"}
                           </span>

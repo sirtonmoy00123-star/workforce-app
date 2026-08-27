@@ -94,6 +94,7 @@ function getDateRange(range: DateRange): { start: string; end: string } {
 function getStatusBadge(status: string): { label: string; color: string } {
   switch (status) {
     case "PRESENT": return { label: "✓ Present", color: "text-green-700 bg-green-50" };
+    case "APPROVED_MANUALLY": return { label: "✓ Approved", color: "text-blue-700 bg-blue-50" };
     case "LATE": return { label: "⚠ Late", color: "text-amber-700 bg-amber-50" };
     case "NOT_CHECKED_IN": return { label: "○ Not Checked In", color: "text-gray-500 bg-gray-50" };
     case "NEEDS_REVIEW": return { label: "⚠ Review", color: "text-red-700 bg-red-50" };

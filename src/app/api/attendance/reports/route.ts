@@ -155,7 +155,7 @@ export async function GET(request: Request) {
           absent++;
         }
       } else {
-        if (checkinStatus === "PRESENT") present++;
+        if (checkinStatus === "PRESENT" || checkinStatus === "APPROVED_MANUALLY") present++;
         else if (checkinStatus === "LATE") { late++; present++; } // Late is still present
         else if (checkinStatus === "NEEDS_REVIEW") needsReview++;
 
@@ -165,7 +165,7 @@ export async function GET(request: Request) {
 
       // Apply status filter
       if (statusFilter) {
-        if (statusFilter === "PRESENT" && checkinStatus !== "PRESENT" && checkinStatus !== "LATE") continue;
+        if (statusFilter === "PRESENT" && checkinStatus !== "PRESENT" && checkinStatus !== "LATE" && checkinStatus !== "APPROVED_MANUALLY") continue;
         if (statusFilter === "LATE" && checkinStatus !== "LATE") continue;
         if (statusFilter === "ABSENT" && attendance) continue;
         if (statusFilter === "NEEDS_REVIEW" && verificationStatus !== "NEEDS_REVIEW") continue;

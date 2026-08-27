@@ -22,6 +22,9 @@ interface AttendanceDetail {
     checkin_latitude: number | null;
     checkin_longitude: number | null;
     checkin_distance_metres: number | null;
+    checkout_latitude: number | null;
+    checkout_longitude: number | null;
+    checkout_distance_metres: number | null;
     selfie_photo_path: string | null;
     site_photo_path: string | null;
     verification_status: string;
@@ -92,6 +95,8 @@ export default function AttendanceReviewDetailPage() {
   const [payableStartOption, setPayableStartOption] = useState<"scheduled" | "actual" | "custom">("scheduled");
   const [customStartTime, setCustomStartTime] = useState("");
   const [reviewNote, setReviewNote] = useState("");
+  const [payableFinishOption, setPayableFinishOption] = useState<"scheduled" | "actual" | "custom">("scheduled");
+  const [customFinishTime, setCustomFinishTime] = useState("");
   const [showSelfie, setShowSelfie] = useState(false);
   const [showSitePhoto, setShowSitePhoto] = useState(false);
 
@@ -110,6 +115,14 @@ export default function AttendanceReviewDetailPage() {
               setPayableStartOption("actual");
             }
           }
+          // Default payable finish: actual if early departure, else scheduled
+          if (d.record.actual_checkout) {
+            const scheduledFinish = new Date(d.record.scheduled_finish);
+            const actualCheckout = new Date(d.record.actual_checkout);
+            if (actualCheckout < scheduledFinish) {
+              setPayableFinishOption("actual"); // Left early — default to actual
+            }
+          }
         }
         setLoading(false);
       })
@@ -123,15 +136,16 @@ export default function AttendanceReviewDetailPage() {
     setError("");
     setSuccess("");
 
-    // Calculate approved start time
+    // Calculate approved start & finish times
     let approvedStart: string | null = null;
+    let approvedFinish: string | null = null;
     if (action === "approve") {
+      // Start time
       if (payableStartOption === "scheduled") {
         approvedStart = data.record.scheduled_start;
       } else if (payableStartOption === "actual") {
         approvedStart = data.record.actual_checkin;
       } else if (payableStartOption === "custom" && customStartTime) {
-        // Build ISO from the shift date + custom time
         const shiftDate = data.record.shifts.date;
         const offset = new Date().getTimezoneOffset();
         const sign = offset <= 0 ? "+" : "-";
@@ -139,6 +153,23 @@ export default function AttendanceReviewDetailPage() {
         const offH = String(Math.floor(absMin / 60)).padStart(2, "0");
         const offM = String(absMin % 60).padStart(2, "0");
         approvedStart = new Date(`${shiftDate}T${customStartTime}:00${sign}${offH}:${offM}`).toISOString();
+      }
+
+      // Finish time (only if checkout exists)
+      if (data.record.actual_checkout) {
+        if (payableFinishOption === "scheduled") {
+          approvedFinish = data.record.scheduled_finish;
+        } else if (payableFinishOption === "actual") {
+          approvedFinish = data.record.actual_checkout;
+        } else if (payableFinishOption === "custom" && customFinishTime) {
+          const shiftDate = data.record.shifts.date;
+          const offset = new Date().getTimezoneOffset();
+          const sign = offset <= 0 ? "+" : "-";
+          const absMin = Math.abs(offset);
+          const offH = String(Math.floor(absMin / 60)).padStart(2, "0");
+          const offM = String(absMin % 60).padStart(2, "0");
+          approvedFinish = new Date(`${shiftDate}T${customFinishTime}:00${sign}${offH}:${offM}`).toISOString();
+        }
       }
     }
 
@@ -157,6 +188,7 @@ export default function AttendanceReviewDetailPage() {
         body: JSON.stringify({
           action,
           approvedStart,
+          approvedFinish,
           reviewNote: reviewNote || null,
           exceptionActions,
         }),
@@ -366,6 +398,78 @@ export default function AttendanceReviewDetailPage() {
         </div>
       </div>
 
+      {/* Check-Out Details Card */}
+      {(record.actual_checkout || record.checkout_status !== "NOT_CHECKED_OUT") && (
+        <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+          <h2 className="font-semibold text-gray-900 mb-3">Check-Out Details</h2>
+
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-gray-500">Verified Check-Out</span>
+              <span className="font-medium">
+                {record.actual_checkout ? formatTime(record.actual_checkout) : "—"}
+              </span>
+            </div>
+
+            <div className="flex justify-between">
+              <span className="text-gray-500">Status</span>
+              <span className={`font-medium ${
+                record.checkout_status === "CHECKED_OUT" ? "text-green-600" :
+                record.checkout_status === "EARLY_DEPARTURE" ? "text-amber-600" :
+                record.checkout_status === "LATE_DEPARTURE" ? "text-amber-600" :
+                record.checkout_status === "NEEDS_REVIEW" ? "text-red-600" :
+                "text-gray-400"
+              }`}>
+                {record.checkout_status === "CHECKED_OUT" && "✓ Checked Out"}
+                {record.checkout_status === "EARLY_DEPARTURE" && "⚠ Early Departure"}
+                {record.checkout_status === "LATE_DEPARTURE" && "⚠ Late Departure"}
+                {record.checkout_status === "NEEDS_REVIEW" && "⚠ Needs Review"}
+                {record.checkout_status === "NOT_CHECKED_OUT" && "○ Not Checked Out"}
+              </span>
+            </div>
+
+            {/* Early/late info */}
+            {record.actual_checkout && (() => {
+              const diff = new Date(record.actual_checkout).getTime() - new Date(record.scheduled_finish).getTime();
+              const minsEarly = Math.max(0, Math.floor(-diff / 60_000));
+              const minsLate = Math.max(0, Math.floor(diff / 60_000));
+              if (minsEarly > 0) {
+                return (
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Left Early</span>
+                    <span className="font-medium text-amber-600">{minsEarly} minutes</span>
+                  </div>
+                );
+              }
+              if (minsLate > 0) {
+                return (
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Overtime</span>
+                    <span className="font-medium text-amber-600">{minsLate} minutes</span>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
+            <div className="flex justify-between">
+              <span className="text-gray-500">GPS</span>
+              <span className={`font-medium ${
+                record.checkout_distance_metres != null
+                  ? record.checkout_distance_metres <= 100
+                    ? "text-green-600"
+                    : "text-amber-600"
+                  : "text-gray-400"
+              }`}>
+                {record.checkout_distance_metres != null
+                  ? `${record.checkout_distance_metres}m`
+                  : "—"}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Exceptions Card */}
       {exceptions.length > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
@@ -470,6 +574,67 @@ export default function AttendanceReviewDetailPage() {
             </label>
           </div>
 
+          {/* Payable Finish — only show if checkout exists */}
+          {record.actual_checkout && (
+            <>
+              <h2 className="font-semibold text-gray-900 mb-3 mt-4 pt-4 border-t border-gray-200">Payable Finish</h2>
+
+              <div className="space-y-2 mb-4">
+                <label className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="radio"
+                    name="payableFinish"
+                    value="scheduled"
+                    checked={payableFinishOption === "scheduled"}
+                    onChange={() => setPayableFinishOption("scheduled")}
+                    className="accent-blue-600"
+                  />
+                  <div>
+                    <div className="text-sm font-medium">Use Scheduled {formatTime(record.scheduled_finish)}</div>
+                    <div className="text-xs text-gray-500">Pay until the originally scheduled finish time</div>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="radio"
+                    name="payableFinish"
+                    value="actual"
+                    checked={payableFinishOption === "actual"}
+                    onChange={() => setPayableFinishOption("actual")}
+                    className="accent-blue-600"
+                  />
+                  <div>
+                    <div className="text-sm font-medium">Use Actual {formatTime(record.actual_checkout)}</div>
+                    <div className="text-xs text-gray-500">Pay until when they actually checked out</div>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="radio"
+                    name="payableFinish"
+                    value="custom"
+                    checked={payableFinishOption === "custom"}
+                    onChange={() => setPayableFinishOption("custom")}
+                    className="accent-blue-600"
+                  />
+                  <div className="flex-1">
+                    <div className="text-sm font-medium">Enter Approved Time</div>
+                    {payableFinishOption === "custom" && (
+                      <input
+                        type="time"
+                        value={customFinishTime}
+                        onChange={(e) => setCustomFinishTime(e.target.value)}
+                        className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                      />
+                    )}
+                  </div>
+                </label>
+              </div>
+            </>
+          )}
+
           {/* Admin Note */}
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -522,6 +687,11 @@ export default function AttendanceReviewDetailPage() {
           {record.approved_start && (
             <div className="text-sm text-gray-600 mb-1">
               Approved Start: {formatTime(record.approved_start)}
+            </div>
+          )}
+          {record.approved_finish && (
+            <div className="text-sm text-gray-600 mb-1">
+              Approved Finish: {formatTime(record.approved_finish)}
             </div>
           )}
           {record.review_note && (

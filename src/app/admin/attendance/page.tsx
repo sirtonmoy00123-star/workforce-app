@@ -227,11 +227,28 @@ export default function AdminAttendancePage() {
 
               {/* Check-in info */}
               {record.actual_checkin && (
-                <div className="text-xs text-gray-500 mb-2">
-                  Checked in: {formatTime(record.actual_checkin)}
+                <div className="text-xs text-gray-500 mb-1">
+                  📥 In: {formatTime(record.actual_checkin)}
                   {record.checkin_distance_metres != null && (
-                    <span> · {record.checkin_distance_metres}m from site</span>
+                    <span> · {record.checkin_distance_metres}m</span>
                   )}
+                </div>
+              )}
+
+              {/* Check-out info */}
+              {record.actual_checkout && (
+                <div className="text-xs text-gray-500 mb-2">
+                  📤 Out: {formatTime(record.actual_checkout)}
+                  {record.checkout_status && record.checkout_status !== "CHECKED_OUT" && record.checkout_status !== "NOT_CHECKED_OUT" && (
+                    <span className="ml-1 text-amber-600 font-medium">
+                      ({record.checkout_status === "EARLY_DEPARTURE" ? "Early" : record.checkout_status === "LATE_DEPARTURE" ? "Late" : record.checkout_status.replace(/_/g, " ")})
+                    </span>
+                  )}
+                </div>
+              )}
+              {!record.actual_checkout && record.actual_checkin && (
+                <div className="text-xs text-gray-400 mb-2">
+                  📤 Not checked out
                 </div>
               )}
 

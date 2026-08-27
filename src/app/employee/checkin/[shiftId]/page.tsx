@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
+import jsQR from "jsqr";
 
 /* ── Types ─────────────────────────────────────────────────── */
 interface AttendanceStatus {
@@ -184,7 +185,7 @@ export default function CheckInPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStep]);
 
-  /* ── QR: Start camera scanning ───────────────────────────── */
+  /* ── QR: Start camera scanning (jsQR — works on all browsers) */
   async function startQrScan() {
     setScanning(true);
     setQrError("");
@@ -198,29 +199,33 @@ export default function CheckInPage() {
         await videoRef.current.play();
       }
 
-      // Use BarcodeDetector if available (Chrome, Edge)
-      if ("BarcodeDetector" in window) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const detector = new (window as any).BarcodeDetector({ formats: ["qr_code"] });
-        scanIntervalRef.current = setInterval(async () => {
-          if (!videoRef.current || videoRef.current.readyState < 2) return;
-          try {
-            const barcodes = await detector.detect(videoRef.current);
-            if (barcodes.length > 0) {
-              const value = barcodes[0].rawValue;
-              if (value && (value.startsWith("WFA:CHECKIN:") || value.startsWith("WFA:DYN:"))) {
-                handleQrScanned(value);
-              }
-            }
-          } catch { /* ignore scan errors */ }
-        }, 500);
-      } else {
-        // Fallback: show manual entry prompt
-        setQrError("Camera QR scanning not supported on this browser. Please enter the code manually.");
-        stopCamera();
-      }
+      // Use jsQR to decode frames from the canvas — works on all browsers
+      scanIntervalRef.current = setInterval(() => {
+        if (!videoRef.current || videoRef.current.readyState < 2) return;
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height, {
+          inversionAttempts: "dontInvert",
+        });
+
+        if (code && code.data) {
+          const value = code.data;
+          if (value.startsWith("WFA:CHECKIN:") || value.startsWith("WFA:DYN:")) {
+            handleQrScanned(value);
+          }
+        }
+      }, 300);
     } catch {
-      setQrError("Unable to access camera. Please enter the QR code manually.");
+      setQrError("Unable to access camera. Please allow camera access and try again.");
       setScanning(false);
     }
   }

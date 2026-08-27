@@ -337,9 +337,9 @@ export default function AttendanceReviewDetailPage() {
             <span className="text-gray-500">GPS</span>
             <span className={`font-medium ${
               record.checkin_distance_metres != null
-                ? record.checkin_distance_metres <= 100
-                  ? "text-green-600"
-                  : "text-amber-600"
+                ? data.exceptions.some((e: { exception_type: string }) => e.exception_type === "GPS_OUT_OF_RANGE")
+                  ? "text-amber-600"
+                  : "text-green-600"
                 : "text-gray-400"
             }`}>
               {record.checkin_distance_metres != null
@@ -414,13 +414,14 @@ export default function AttendanceReviewDetailPage() {
             <div className="flex justify-between">
               <span className="text-gray-500">Status</span>
               <span className={`font-medium ${
-                record.checkout_status === "CHECKED_OUT" ? "text-green-600" :
+                record.checkout_status === "CHECKED_OUT" || record.checkout_status === "AUTO_CHECKOUT" ? "text-green-600" :
                 record.checkout_status === "EARLY_DEPARTURE" ? "text-amber-600" :
                 record.checkout_status === "LATE_DEPARTURE" ? "text-amber-600" :
                 record.checkout_status === "NEEDS_REVIEW" ? "text-red-600" :
                 "text-gray-400"
               }`}>
                 {record.checkout_status === "CHECKED_OUT" && "✓ Checked Out"}
+                {record.checkout_status === "AUTO_CHECKOUT" && "✓ Auto Checked Out"}
                 {record.checkout_status === "EARLY_DEPARTURE" && "⚠ Early Departure"}
                 {record.checkout_status === "LATE_DEPARTURE" && "⚠ Late Departure"}
                 {record.checkout_status === "NEEDS_REVIEW" && "⚠ Needs Review"}
@@ -456,9 +457,9 @@ export default function AttendanceReviewDetailPage() {
               <span className="text-gray-500">GPS</span>
               <span className={`font-medium ${
                 record.checkout_distance_metres != null
-                  ? record.checkout_distance_metres <= 100
-                    ? "text-green-600"
-                    : "text-amber-600"
+                  ? data.exceptions.some((e: { exception_type: string }) => e.exception_type === "GPS_OUT_OF_RANGE")
+                    ? "text-amber-600"
+                    : "text-green-600"
                   : "text-gray-400"
               }`}>
                 {record.checkout_distance_metres != null

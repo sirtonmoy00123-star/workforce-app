@@ -1607,7 +1607,7 @@ export default function RosterPage() {
                             {att.checkin_distance_metres != null && (
                               <div className="flex justify-between">
                                 <span className="text-gray-500">GPS</span>
-                                <span className={`font-medium ${att.checkin_distance_metres <= 100 ? "text-green-600" : "text-amber-600"}`}>
+                                <span className={`font-medium ${att.checkin_status === "PRESENT" || att.checkin_status === "APPROVED_MANUALLY" ? "text-green-600" : "text-amber-600"}`}>
                                   {att.checkin_distance_metres}m
                                 </span>
                               </div>
@@ -1616,11 +1616,12 @@ export default function RosterPage() {
                               <div className="flex justify-between">
                                 <span className="text-gray-500">Check-Out</span>
                                 <span className={`font-medium ${
-                                  att.checkout_status === "CHECKED_OUT" ? "text-green-600" :
+                                  att.checkout_status === "CHECKED_OUT" || att.checkout_status === "AUTO_CHECKOUT" ? "text-green-600" :
                                   att.checkout_status === "EARLY_DEPARTURE" || att.checkout_status === "LATE_DEPARTURE" ? "text-amber-600" :
                                   "text-red-600"
                                 }`}>
                                   {att.checkout_status === "CHECKED_OUT" && `✓ ${att.actual_checkout ? formatTime(att.actual_checkout) : "Out"}`}
+                                  {att.checkout_status === "AUTO_CHECKOUT" && `✓ Auto ${att.actual_checkout ? formatTime(att.actual_checkout) : "Out"}`}
                                   {att.checkout_status === "EARLY_DEPARTURE" && `⚠ Early ${att.actual_checkout ? formatTime(att.actual_checkout) : ""}`}
                                   {att.checkout_status === "LATE_DEPARTURE" && `⚠ Late ${att.actual_checkout ? formatTime(att.actual_checkout) : ""}`}
                                   {att.checkout_status === "NEEDS_REVIEW" && "⚠ Review"}

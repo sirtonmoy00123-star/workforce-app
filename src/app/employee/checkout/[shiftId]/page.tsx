@@ -391,7 +391,8 @@ export default function CheckoutPage() {
                   setError("");
                   const m = data?.settings?.checkout_method || "BUTTON_ONLY";
                   if (m === "QR_GPS" || m === "QR_GPS_SELFIE") setStep("QR_SCAN");
-                  else if (m !== "BUTTON_ONLY") setStep("GPS_VERIFY");
+                  else if (m === "BUTTON_ONLY") submitCheckout(null, null, null, true);
+                  else setStep("GPS_VERIFY");
                 }}
                 className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-medium"
               >
@@ -406,7 +407,7 @@ export default function CheckoutPage() {
           <div>
             {/* Status banner */}
             <div className={`rounded-lg p-4 mb-4 text-center ${
-              result.checkoutStatus === "CHECKED_OUT"
+              result.checkoutStatus === "CHECKED_OUT" || result.checkoutStatus === "AUTO_CHECKOUT"
                 ? "bg-green-50 border border-green-200"
                 : result.checkoutStatus === "EARLY_DEPARTURE"
                 ? "bg-amber-50 border border-amber-200"
@@ -415,12 +416,13 @@ export default function CheckoutPage() {
                 : "bg-yellow-50 border border-yellow-200"
             }`}>
               <div className="text-2xl mb-1">
-                {result.checkoutStatus === "CHECKED_OUT" ? "✅" : "⚠️"}
+                {result.checkoutStatus === "CHECKED_OUT" || result.checkoutStatus === "AUTO_CHECKOUT" ? "✅" : "⚠️"}
               </div>
               <h3 className={`font-semibold ${
-                result.checkoutStatus === "CHECKED_OUT" ? "text-green-700" : "text-amber-700"
+                result.checkoutStatus === "CHECKED_OUT" || result.checkoutStatus === "AUTO_CHECKOUT" ? "text-green-700" : "text-amber-700"
               }`}>
                 {result.checkoutStatus === "CHECKED_OUT" && "Checked Out"}
+                {result.checkoutStatus === "AUTO_CHECKOUT" && "Auto Checked Out"}
                 {result.checkoutStatus === "EARLY_DEPARTURE" && "Checked Out — Early Departure"}
                 {result.checkoutStatus === "LATE_DEPARTURE" && "Checked Out — Late Finish"}
                 {result.checkoutStatus === "NEEDS_REVIEW" && "Checked Out — Needs Review"}

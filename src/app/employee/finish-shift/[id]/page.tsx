@@ -232,13 +232,16 @@ export default function FinishShiftPage() {
           ) {
             const method = data.settings?.checkout_method || "BUTTON_ONLY";
             if (method === "BUTTON_ONLY") {
-              // Auto-checkout silently
+              // Auto-checkout
               const fd = new FormData();
               fd.append("shiftId", shiftId);
               fd.append("auto", "true");
               fetch("/api/attendance/checkout", { method: "POST", body: fd })
-                .then(() => setCheckoutDone(true))
-                .catch(() => {}); // silent fail for auto
+                .then((r) => {
+                  if (r.ok) setCheckoutDone(true);
+                  else setCheckoutNeeded(true); // show manual checkout button on failure
+                })
+                .catch(() => setCheckoutNeeded(true)); // show manual checkout button on error
             } else {
               setCheckoutNeeded(true);
             }

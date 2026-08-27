@@ -99,7 +99,7 @@ export async function PUT(
     // Verify record exists and belongs to this business
     const { data: record } = await adminClient
       .from("attendance_records")
-      .select("id, business_id, verification_status")
+      .select("id, business_id, verification_status, checkin_status")
       .eq("id", id)
       .eq("business_id", ctx.businessId)
       .single();
@@ -133,8 +133,11 @@ export async function PUT(
       if (approvedStart) updateData.approved_start = approvedStart;
       if (approvedFinish) updateData.approved_finish = approvedFinish;
 
-      // If approved, also mark checkin_status as APPROVED_MANUALLY when it was NEEDS_REVIEW
-      updateData.checkin_status = "APPROVED_MANUALLY" as const;
+      // Only change checkin_status to APPROVED_MANUALLY if it was NEEDS_REVIEW
+      // Don't overwrite PRESENT or LATE — those are accurate statuses
+      if (record.checkin_status === "NEEDS_REVIEW") {
+        updateData.checkin_status = "APPROVED_MANUALLY" as const;
+      }
     }
 
     const { data: updatedRecord, error: updateError } = await adminClient

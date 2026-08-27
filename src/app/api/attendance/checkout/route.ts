@@ -207,7 +207,7 @@ export async function POST(request: Request) {
     let requiresReview = record.requires_review || false;
 
     if (isAuto && checkoutMethod === "BUTTON_ONLY") {
-      checkoutStatus = "CHECKED_OUT";
+      checkoutStatus = "AUTO_CHECKOUT";
     } else if (gpsOutOfRange) {
       checkoutStatus = "NEEDS_REVIEW";
       requiresReview = true;
@@ -228,6 +228,8 @@ export async function POST(request: Request) {
       checkout_latitude: number | null;
       checkout_longitude: number | null;
       checkout_distance_metres: number | null;
+      checkout_selfie_path: string | null;
+      checkout_qr_verified: boolean;
       requires_review: boolean;
       verification_status?: "PENDING" | "NEEDS_REVIEW" | "VERIFIED" | "REJECTED";
     } = {
@@ -236,6 +238,8 @@ export async function POST(request: Request) {
       checkout_latitude: checkoutLat,
       checkout_longitude: checkoutLng,
       checkout_distance_metres: checkoutDistanceMetres,
+      checkout_selfie_path: checkoutSelfiePath,
+      checkout_qr_verified: qrVerifiedCheckout,
       requires_review: requiresReview,
     };
 
@@ -246,7 +250,10 @@ export async function POST(request: Request) {
       updateData.verification_status = "NEEDS_REVIEW";
     }
 
-    const { data: updatedRecord, error: updateError } = await adminClient
+    // Cast to any because checkout_selfie_path and checkout_qr_verified
+    // are not in the generated Supabase types yet (added in migration 017)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: updatedRecord, error: updateError } = await (adminClient as any)
       .from("attendance_records")
       .update(updateData)
       .eq("id", record.id)

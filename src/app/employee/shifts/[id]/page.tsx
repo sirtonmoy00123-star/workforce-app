@@ -138,9 +138,14 @@ export default function ShiftDetailPage() {
       if (shiftData.error) setError(shiftData.error);
       else {
         setShift(shiftData);
+        // Always load proof data — admin may have set proof requirements per-shift
+        // even if the employee's profile doesn't have task_proof_enabled
+        loadProofData(id).then(() => {
+          // After loading, check if there are any requirements — that's the real indicator
+          // The profile setting is the employee default; per-shift requirements override
+        });
         const proofOn = profileData?.task_proof_enabled === true;
         setTaskProofEnabled(proofOn);
-        if (proofOn) loadProofData(id);
       }
       if (attendanceData && !attendanceData.error) {
         setAttendanceInfo(attendanceData);
@@ -300,8 +305,8 @@ export default function ShiftDetailPage() {
           )}
         </div>
 
-        {/* Task Proof Section */}
-        {taskProofEnabled && proofRequirements.length > 0 && (
+        {/* Task Proof Section — show if shift has proof requirements (regardless of profile toggle) */}
+        {proofRequirements.length > 0 && (
           <div className="mt-6 border-t border-gray-200 pt-5">
             <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
               📷 Task Proof {proofRequirements.some((r) => r.is_required) ? "Required" : ""}
@@ -587,18 +592,19 @@ export default function ShiftDetailPage() {
                     {/* Checkout status */}
                     {checkedOut ? (
                       <div className={`rounded-xl p-4 mt-3 ${
-                        record.checkout_status === "CHECKED_OUT"
+                        record.checkout_status === "CHECKED_OUT" || record.checkout_status === "AUTO_CHECKOUT"
                           ? "bg-indigo-50 border border-indigo-200"
                           : "bg-amber-50 border border-amber-200"
                       }`}>
                         <div className="flex items-center gap-2 mb-1">
-                          <span className={record.checkout_status === "CHECKED_OUT" ? "text-indigo-600" : "text-amber-600"}>
-                            {record.checkout_status === "CHECKED_OUT" ? "✓" : "⚠"}
+                          <span className={record.checkout_status === "CHECKED_OUT" || record.checkout_status === "AUTO_CHECKOUT" ? "text-indigo-600" : "text-amber-600"}>
+                            {record.checkout_status === "CHECKED_OUT" || record.checkout_status === "AUTO_CHECKOUT" ? "✓" : "⚠"}
                           </span>
                           <span className={`font-semibold ${
-                            record.checkout_status === "CHECKED_OUT" ? "text-indigo-700" : "text-amber-700"
+                            record.checkout_status === "CHECKED_OUT" || record.checkout_status === "AUTO_CHECKOUT" ? "text-indigo-700" : "text-amber-700"
                           }`}>
                             {record.checkout_status === "CHECKED_OUT" ? "Checked Out" :
+                             record.checkout_status === "AUTO_CHECKOUT" ? "Auto Checked Out" :
                              record.checkout_status === "EARLY_DEPARTURE" ? "Early Departure" :
                              record.checkout_status === "LATE_DEPARTURE" ? "Late Finish" :
                              "Checkout — Needs Review"}

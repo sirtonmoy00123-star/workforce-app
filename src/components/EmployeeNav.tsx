@@ -6,7 +6,6 @@ import { createClient } from "@/lib/supabase/client";
 import { useState, useEffect } from "react";
 
 const navLinks = [
-  { href: "/employee/home", label: "Home" },
   { href: "/employee/shifts", label: "My Shifts" },
   { href: "/employee/offers", label: "Offers" },
   { href: "/employee/attendance", label: "Attendance" },
@@ -40,7 +39,7 @@ export default function EmployeeNav() {
   return (
     <header className="bg-white border-b border-gray-200">
       <div className="max-w-4xl mx-auto px-4 flex items-center justify-between h-14">
-        <Link href="/employee/home" className="font-bold text-lg text-blue-600">
+        <Link href="/employee/shifts" className="font-bold text-lg text-blue-600">
           Workforce
         </Link>
 

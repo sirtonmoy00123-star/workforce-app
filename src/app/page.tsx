@@ -45,6 +45,6 @@ export default async function RootPage() {
   } else if (appUser.role === "admin") {
     redirect("/admin/dashboard");
   } else {
-    redirect("/employee/home");
+    redirect("/employee/shifts");
   }
 }

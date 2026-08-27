@@ -83,6 +83,8 @@ export default function NewShiftPage() {
 
   // Employee list
   const [employees, setEmployees] = useState<Employee[]>([]);
+  // Work locations for dropdown
+  const [workLocations, setWorkLocations] = useState<{ id: string; name: string }[]>([]);
 
   // Form state — Step 1: Shift details
   const [form, setForm] = useState({
@@ -131,6 +133,12 @@ export default function NewShiftPage() {
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data)) setProofTemplates(data);
+      })
+      .catch(() => {});
+    fetch("/api/work-locations")
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) setWorkLocations(data.map((l: { id: string; name: string }) => ({ id: l.id, name: l.name })));
       })
       .catch(() => {});
   }, []);
@@ -520,14 +528,17 @@ export default function NewShiftPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Work Location
               </label>
-              <input
-                type="text"
+              <select
                 value={form.location}
                 onChange={(e) => updateField("location", e.target.value)}
-                placeholder="e.g. Main Office, Site A"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white
                            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
+              >
+                <option value="">Select a location…</option>
+                {workLocations.map((loc) => (
+                  <option key={loc.id} value={loc.name}>{loc.name}</option>
+                ))}
+              </select>
             </div>
 
             <div>

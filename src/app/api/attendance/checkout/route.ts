@@ -211,10 +211,10 @@ export async function POST(request: Request) {
     } else if (gpsOutOfRange) {
       checkoutStatus = "NEEDS_REVIEW";
       requiresReview = true;
-    } else if (minsEarly > earlyThreshold) {
+    } else if (minsEarly >= earlyThreshold) {
       checkoutStatus = "EARLY_DEPARTURE";
       requiresReview = true;
-    } else if (minsLate > lateThreshold) {
+    } else if (minsLate >= lateThreshold) {
       checkoutStatus = "LATE_DEPARTURE";
       requiresReview = true;
     } else {
@@ -243,11 +243,14 @@ export async function POST(request: Request) {
       requires_review: requiresReview,
     };
 
-    // If checkout creates a review need and record was previously verified, set back to needs_review
+    // If checkout creates a review need, set verification to NEEDS_REVIEW
     if (requiresReview && record.verification_status === "VERIFIED") {
       updateData.verification_status = "NEEDS_REVIEW";
     } else if (requiresReview && record.verification_status !== "NEEDS_REVIEW") {
       updateData.verification_status = "NEEDS_REVIEW";
+    } else if (!requiresReview && !record.requires_review && checkoutStatus === "CHECKED_OUT") {
+      // Clean checkout + clean check-in → auto-verify the whole record
+      updateData.verification_status = "VERIFIED";
     }
 
     // Cast to any because checkout_selfie_path and checkout_qr_verified
@@ -278,7 +281,7 @@ export async function POST(request: Request) {
       status: "PENDING";
     }> = [];
 
-    if (minsEarly > earlyThreshold) {
+    if (minsEarly >= earlyThreshold) {
       exceptions.push({
         business_id: ctx.businessId,
         attendance_record_id: record.id,
@@ -290,7 +293,7 @@ export async function POST(request: Request) {
       });
     }
 
-    if (minsLate > lateThreshold) {
+    if (minsLate >= lateThreshold) {
       exceptions.push({
         business_id: ctx.businessId,
         attendance_record_id: record.id,

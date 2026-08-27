@@ -46,7 +46,7 @@ export async function GET(request: Request) {
       )
       .eq("shift_id", shiftId)
       .eq("business_id", ctx.businessId)
-      .single();
+      .maybeSingle();
 
     // If no location_id, attendance isn't configured
     if (!shift.location_id) {

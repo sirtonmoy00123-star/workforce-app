@@ -272,6 +272,7 @@ export default function CheckInPage() {
         setGpsCoords({ lat, lng });
 
         // Calculate distance client-side for display (server recalculates)
+        let computedDistance: number | null = null;
         if (status?.location?.latitude != null && status?.location?.longitude != null) {
           const R = 6_371_000;
           const toRad = (d: number) => (d * Math.PI) / 180;
@@ -283,12 +284,17 @@ export default function CheckInPage() {
               Math.cos(toRad(status.location.latitude)) *
               Math.sin(dLng / 2) ** 2;
           const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-          setGpsDistance(Math.round(R * c));
+          computedDistance = Math.round(R * c);
+          setGpsDistance(computedDistance);
         }
 
         setGpsLoading(false);
-        // Auto-advance after a brief delay so user sees the result
-        setTimeout(() => advanceStep(), 1200);
+        // Auto-advance only if within allowed radius; if out of range,
+        // let the user see the warning and decide via "Continue Anyway"
+        const allowedRadius = status?.settings?.allowed_radius_metres ?? 100;
+        if (computedDistance === null || computedDistance <= allowedRadius) {
+          setTimeout(() => advanceStep(), 1200);
+        }
       },
       (err) => {
         setGpsError(

@@ -65,7 +65,7 @@ export async function POST(request: Request) {
       .select("id, checkin_status")
       .eq("shift_id", shiftId)
       .eq("business_id", ctx.businessId)
-      .single();
+      .maybeSingle();
 
     if (existing && existing.checkin_status !== "NOT_CHECKED_IN") {
       return NextResponse.json({ error: "You have already checked in for this shift." }, { status: 409 });
@@ -260,11 +260,13 @@ export async function POST(request: Request) {
       verificationStatus = "NEEDS_REVIEW";
       requiresReview = true;
     } else if (minsLate <= 0) {
+      // On time + in range → auto-verify (no admin review needed)
       checkinStatus = "PRESENT";
-      verificationStatus = "PENDING";
+      verificationStatus = "VERIFIED";
     } else if (minsLate <= lateGraceMinutes) {
+      // Within grace period + in range → auto-verify
       checkinStatus = "PRESENT";
-      verificationStatus = "PENDING";
+      verificationStatus = "VERIFIED";
     } else {
       checkinStatus = "LATE";
       verificationStatus = "NEEDS_REVIEW";

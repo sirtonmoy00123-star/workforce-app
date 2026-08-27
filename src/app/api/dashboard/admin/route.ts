@@ -53,6 +53,34 @@ export async function GET() {
       .eq("requires_review", true)
       .eq("verification_status", "NEEDS_REVIEW");
 
+    // Action Required: recent unresolved attendance exceptions
+    const { data: actionItems } = await adminClient
+      .from("attendance_exceptions")
+      .select(`
+        id,
+        attendance_record_id,
+        employee_id,
+        shift_id,
+        exception_type,
+        difference_minutes,
+        difference_metres,
+        status,
+        created_at,
+        employees ( full_name, employee_number )
+      `)
+      .eq("business_id", ctx.businessId)
+      .eq("status", "PENDING")
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    // Unread notifications count
+    const { count: unreadNotifications } = await adminClient
+      .from("notifications")
+      .select("*", { count: "exact", head: true })
+      .eq("business_id", ctx.businessId)
+      .eq("target_role", "admin")
+      .eq("is_read", false);
+
     // Unpaid payments
     let unpaidPayments = 0;
     let unpaidAmount = 0;
@@ -75,6 +103,8 @@ export async function GET() {
       unpaidPayments,
       unpaidAmount,
       attendanceReview: attendanceReview || 0,
+      actionRequired: actionItems || [],
+      unreadNotifications: unreadNotifications || 0,
     });
   } catch (err) {
     return handleTenantError(err);

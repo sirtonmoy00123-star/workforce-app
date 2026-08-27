@@ -4,6 +4,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
+import { notifyEmployee } from "@/lib/services/notificationService";
 
 export async function GET(
   request: Request,
@@ -162,6 +163,38 @@ export async function PUT(
           })
           .eq("id", ea.exceptionId)
           .eq("business_id", ctx.businessId);
+      }
+    }
+
+    // ── Notify employee of the review result ──
+    // Fetch the employee to get their auth user ID and name
+    const { data: empRecord } = await adminClient
+      .from("attendance_records")
+      .select("employee_id")
+      .eq("id", id)
+      .single();
+
+    if (empRecord?.employee_id) {
+      const { data: emp } = await adminClient
+        .from("employees")
+        .select("id, full_name, user_id")
+        .eq("id", empRecord.employee_id)
+        .single();
+
+      if (emp?.user_id) {
+        const resultLabel = action === "approve" ? "Approved" : "Rejected";
+        await notifyEmployee({
+          businessId: ctx.businessId,
+          targetUserId: emp.user_id,
+          employeeId: emp.id,
+          shiftId: "",
+          attendanceId: id,
+          type: "ATTENDANCE_CORRECTION_RESULT",
+          title: `Attendance ${resultLabel}`,
+          message: reviewNote
+            ? `Your attendance was ${resultLabel.toLowerCase()}. Note: ${reviewNote}`
+            : `Your attendance record was ${resultLabel.toLowerCase()} by your employer.`,
+        });
       }
     }
 

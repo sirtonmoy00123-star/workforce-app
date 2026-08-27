@@ -15,6 +15,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireMember, handleTenantError } from "@/lib/services/tenantContext";
 import { validateDynamicQrToken } from "@/lib/services/dynamicQr";
 import { haversineDistanceMetres } from "@/lib/calculations/geo";
+import { notifyAdminException } from "@/lib/services/notificationService";
 
 export async function POST(request: Request) {
   try {
@@ -308,6 +309,26 @@ export async function POST(request: Request) {
 
     if (exceptions.length > 0) {
       await adminClient.from("attendance_exceptions").insert(exceptions);
+
+      // ── Notify admin of checkout exceptions ──
+      const { data: emp } = await adminClient
+        .from("employees")
+        .select("full_name")
+        .eq("id", ctx.employeeId)
+        .single();
+      const empName = emp?.full_name || "Employee";
+
+      for (const exc of exceptions) {
+        await notifyAdminException({
+          businessId: ctx.businessId,
+          employeeId: ctx.employeeId,
+          employeeName: empName,
+          shiftId,
+          attendanceId: record.id,
+          exceptionType: exc.exception_type,
+          minutes: exc.difference_minutes,
+        });
+      }
     }
 
     // ── 10. Return result ────────────────────────────────────

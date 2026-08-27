@@ -3,6 +3,19 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
+interface ActionRequiredItem {
+  id: string;
+  attendance_record_id: string;
+  employee_id: string;
+  shift_id: string;
+  exception_type: string;
+  difference_minutes: number | null;
+  difference_metres: number | null;
+  status: string;
+  created_at: string;
+  employees: { full_name: string; employee_number: string } | null;
+}
+
 interface DashboardStats {
   totalEmployees: number;
   activeEmployees: number;
@@ -12,6 +25,8 @@ interface DashboardStats {
   unpaidPayments: number;
   unpaidAmount: number;
   attendanceReview: number;
+  actionRequired: ActionRequiredItem[];
+  unreadNotifications: number;
 }
 
 interface UpcomingEvent {
@@ -112,6 +127,64 @@ export default function AdminDashboardPage() {
             {stats!.attendanceReview} record{stats!.attendanceReview !== 1 ? "s" : ""} need{stats!.attendanceReview === 1 ? "s" : ""} review
           </div>
         </Link>
+      )}
+
+      {/* Action Required — Attendance Exceptions */}
+      {stats?.actionRequired && stats.actionRequired.length > 0 && (
+        <div className="bg-white rounded-xl border border-red-200 p-4 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-semibold text-red-800 flex items-center gap-2">
+              <span>🔔</span> Action Required
+            </h2>
+            <Link
+              href="/admin/attendance"
+              className="text-xs text-blue-600 hover:underline"
+            >
+              View All
+            </Link>
+          </div>
+          <div className="space-y-2">
+            {stats.actionRequired.map((item) => {
+              const empName = item.employees?.full_name || "Employee";
+              let description = "";
+              switch (item.exception_type) {
+                case "LATE_ARRIVAL":
+                  description = `${item.difference_minutes || 0} min late`;
+                  break;
+                case "EARLY_DEPARTURE":
+                  description = `Left ${item.difference_minutes || 0} min early`;
+                  break;
+                case "LATE_DEPARTURE":
+                  description = `${item.difference_minutes || 0} min overtime`;
+                  break;
+                case "GPS_OUT_OF_RANGE":
+                  description = "GPS outside allowed site radius";
+                  break;
+                case "MISSED_CHECKIN":
+                  description = "No verified attendance";
+                  break;
+                default:
+                  description = item.exception_type.replace(/_/g, " ");
+              }
+
+              return (
+                <Link
+                  key={item.id}
+                  href={`/admin/attendance/${item.attendance_record_id}`}
+                  className="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:border-red-200 hover:bg-red-50 transition-colors"
+                >
+                  <div>
+                    <div className="text-sm font-medium text-gray-900">⚠ {empName}</div>
+                    <div className="text-xs text-red-600">{description}</div>
+                  </div>
+                  <span className="text-xs font-medium text-red-600 bg-red-50 px-2 py-1 rounded-lg">
+                    Review
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
       )}
 
       {/* Today's Shifts */}

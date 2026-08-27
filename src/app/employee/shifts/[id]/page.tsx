@@ -70,6 +70,32 @@ const PROOF_TYPE_LABELS: Record<string, { label: string; emoji: string }> = {
   OTHER: { label: "Other", emoji: "📎" },
 };
 
+// ── Phase detection ──
+type ShiftPhase = "PENDING" | "CHECKIN" | "START" | "WORKING" | "DONE" | "DECLINED";
+
+function detectPhase(
+  shift: Shift,
+  attendanceInfo: AttendanceInfo | null,
+): ShiftPhase {
+  if (shift.status === "declined") return "DECLINED";
+  if (shift.status === "completed") return "DONE";
+  if (shift.status === "pending" || shift.status === "updated_pending") return "PENDING";
+
+  const isWorking = shift.attendance?.attendance_status === "working";
+  if (isWorking) return "WORKING";
+
+  // Accepted — check if attendance check-in is needed
+  if (shift.status === "accepted") {
+    const needsCheckin =
+      attendanceInfo?.attendanceRequired &&
+      (!attendanceInfo.record || attendanceInfo.record.checkin_status === "NOT_CHECKED_IN");
+    if (needsCheckin) return "CHECKIN";
+    return "START";
+  }
+
+  return "START";
+}
+
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString("en-AU", {
     hour: "numeric",
@@ -88,6 +114,63 @@ function formatDate(dateStr: string): string {
   });
 }
 
+// ── Progress stepper ──
+function ProgressStepper({ phase, attendanceRequired }: { phase: ShiftPhase; attendanceRequired: boolean }) {
+  if (phase === "PENDING" || phase === "DECLINED") return null;
+
+  const steps = attendanceRequired
+    ? [
+        { key: "CHECKIN", label: "Check In" },
+        { key: "START", label: "Start" },
+        { key: "WORKING", label: "Working" },
+        { key: "DONE", label: "Done" },
+      ]
+    : [
+        { key: "START", label: "Start" },
+        { key: "WORKING", label: "Working" },
+        { key: "DONE", label: "Done" },
+      ];
+
+  const phaseOrder = steps.map((s) => s.key);
+  const currentIdx = phaseOrder.indexOf(phase);
+
+  return (
+    <div className="flex items-center justify-between mb-6 px-2">
+      {steps.map((step, i) => {
+        const isDone = i < currentIdx;
+        const isCurrent = i === currentIdx;
+        return (
+          <div key={step.key} className="flex items-center flex-1 last:flex-none">
+            <div className="flex flex-col items-center">
+              <div
+                className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
+                  isDone
+                    ? "bg-green-500 text-white"
+                    : isCurrent
+                    ? "bg-blue-600 text-white ring-2 ring-blue-200"
+                    : "bg-gray-200 text-gray-400"
+                }`}
+              >
+                {isDone ? "✓" : i + 1}
+              </div>
+              <span
+                className={`text-[10px] mt-1 ${
+                  isDone ? "text-green-600 font-medium" : isCurrent ? "text-blue-700 font-semibold" : "text-gray-400"
+                }`}
+              >
+                {step.label}
+              </span>
+            </div>
+            {i < steps.length - 1 && (
+              <div className={`flex-1 h-0.5 mx-1.5 mt-[-12px] ${isDone ? "bg-green-400" : "bg-gray-200"}`} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function ShiftDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -100,14 +183,13 @@ export default function ShiftDetailPage() {
   const [justStarted, setJustStarted] = useState(false);
 
   // Task Proof state
-  const [taskProofEnabled, setTaskProofEnabled] = useState(false);
   const [proofRequirements, setProofRequirements] = useState<ProofRequirement[]>([]);
   const [proofSubmissions, setProofSubmissions] = useState<ProofSubmission[]>([]);
-  const [uploading, setUploading] = useState<string | null>(null); // requirement_id being uploaded
+  const [uploading, setUploading] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState("");
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  // Attendance check-in state
+  // Attendance state
   const [attendanceInfo, setAttendanceInfo] = useState<AttendanceInfo | null>(null);
 
   async function loadProofData(shiftId: string) {
@@ -120,11 +202,12 @@ export default function ShiftDetailPage() {
       const subs = await subRes.json();
       if (Array.isArray(reqs)) setProofRequirements(reqs);
       if (Array.isArray(subs)) setProofSubmissions(subs);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   useEffect(() => {
-    // Check if we just came from starting the shift
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get("started") === "true") {
       setJustStarted(true);
@@ -132,20 +215,18 @@ export default function ShiftDetailPage() {
 
     Promise.all([
       fetch(`/api/shifts/${id}`).then((r) => r.json()),
-      fetch("/api/profile").then((r) => r.json()),
-      fetch(`/api/attendance/status?shiftId=${id}`).then((r) => r.json()).catch(() => null),
-    ]).then(([shiftData, profileData, attendanceData]) => {
+      fetch(`/api/attendance/status?shiftId=${id}`)
+        .then((r) => r.json())
+        .catch(() => null),
+    ]).then(([shiftData, attendanceData]) => {
       if (shiftData.error) setError(shiftData.error);
       else {
         setShift(shiftData);
-        // Always load proof data — admin may have set proof requirements per-shift
-        // even if the employee's profile doesn't have task_proof_enabled
-        loadProofData(id).then(() => {
-          // After loading, check if there are any requirements — that's the real indicator
-          // The profile setting is the employee default; per-shift requirements override
-        });
-        const proofOn = profileData?.task_proof_enabled === true;
-        setTaskProofEnabled(proofOn);
+        // Only load proof data if the shift is being worked (WORKING phase)
+        const isWorking = shiftData.attendance?.attendance_status === "working";
+        if (isWorking) {
+          loadProofData(id);
+        }
       }
       if (attendanceData && !attendanceData.error) {
         setAttendanceInfo(attendanceData);
@@ -154,7 +235,7 @@ export default function ShiftDetailPage() {
     }).catch(() => {
       setError("Failed to load shift.");
       setLoading(false);
-      });
+    });
   }, [id]);
 
   async function handleAction(action: "accept" | "decline" | "accept_updated") {
@@ -197,7 +278,6 @@ export default function ShiftDetailPage() {
       if (!res.ok) {
         setUploadError(data.error || "Upload failed.");
       } else {
-        // Refresh submissions
         await loadProofData(id);
       }
     } catch {
@@ -236,10 +316,11 @@ export default function ShiftDetailPage() {
     );
   }
 
-  const isWorking = shift?.attendance?.attendance_status === "working";
-
   if (loading) return <div className="text-center py-12 text-gray-500">Loading…</div>;
   if (!shift) return <div className="text-center py-12 text-red-500">{error || "Shift not found."}</div>;
+
+  const phase = detectPhase(shift, attendanceInfo);
+  const attendanceRequired = attendanceInfo?.attendanceRequired ?? false;
 
   return (
     <div className="max-w-lg mx-auto">
@@ -263,11 +344,16 @@ export default function ShiftDetailPage() {
       )}
 
       <div className="bg-white rounded-xl border border-gray-200 p-6">
+        {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-xl font-bold text-gray-900">Shift Details</h1>
-          <StatusBadge status={isWorking ? "working" : shift.status} />
+          <StatusBadge status={phase === "WORKING" ? "working" : shift.status} />
         </div>
 
+        {/* Progress stepper */}
+        <ProgressStepper phase={phase} attendanceRequired={attendanceRequired} />
+
+        {/* Shift info — always visible */}
         <div className="space-y-3 text-sm">
           <div>
             <span className="text-gray-500">Date</span>
@@ -291,10 +377,10 @@ export default function ShiftDetailPage() {
               <div className="font-medium">{shift.instructions}</div>
             </div>
           )}
-          {isWorking && shift.attendance?.actual_start && (
+          {phase === "WORKING" && shift.attendance?.actual_start && (
             <div>
               <span className="text-gray-500">Started at</span>
-              <div className="font-medium">
+              <div className="font-medium text-green-700">
                 {new Date(shift.attendance.actual_start).toLocaleTimeString("en-AU", {
                   hour: "numeric",
                   minute: "2-digit",
@@ -305,190 +391,9 @@ export default function ShiftDetailPage() {
           )}
         </div>
 
-        {/* Task Proof Section — show if shift has proof requirements (regardless of profile toggle) */}
-        {proofRequirements.length > 0 && (
-          <div className="mt-6 border-t border-gray-200 pt-5">
-            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
-              📷 Task Proof {proofRequirements.some((r) => r.is_required) ? "Required" : ""}
-            </h2>
-
-            {uploadError && (
-              <div className="bg-red-50 text-red-700 text-sm rounded-lg p-3 border border-red-200 mb-3">
-                {uploadError}
-              </div>
-            )}
-
-            {/* Progress */}
-            {(() => {
-              const requiredReqs = proofRequirements.filter((r) => r.is_required);
-              const completedRequired = requiredReqs.filter((r) => {
-                const subs = getSubmissionsForReq(r.id);
-                return subs.length >= r.minimum_photos;
-              });
-              const total = requiredReqs.length;
-              const done = completedRequired.length;
-              return total > 0 ? (
-                <div className="mb-4">
-                  <div className="flex items-center justify-between text-sm mb-1">
-                    <span className="text-gray-600">
-                      {done} of {total} required proof{total !== 1 ? "s" : ""} completed
-                    </span>
-                    {done >= total ? (
-                      <span className="text-green-600 font-medium">✓ Complete</span>
-                    ) : (
-                      <span className="text-amber-600 font-medium">○ Incomplete</span>
-                    )}
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-1.5">
-                    <div
-                      className={`h-1.5 rounded-full transition-all ${
-                        done >= total ? "bg-green-500" : "bg-amber-500"
-                      }`}
-                      style={{ width: `${total > 0 ? (done / total) * 100 : 0}%` }}
-                    />
-                  </div>
-                </div>
-              ) : null;
-            })()}
-
-            {/* Per-requirement cards */}
-            <div className="space-y-3">
-              {proofRequirements.map((req) => {
-                const pt = PROOF_TYPE_LABELS[req.proof_type] || { label: req.proof_type, emoji: "📎" };
-                const subs = getSubmissionsForReq(req.id);
-                const isComplete = subs.length >= req.minimum_photos;
-                const canUpload = subs.length < req.maximum_photos;
-                const isUploading = uploading === req.id;
-
-                return (
-                  <div
-                    key={req.id}
-                    className={`rounded-xl border p-4 ${
-                      isComplete
-                        ? "border-green-200 bg-green-50"
-                        : req.is_required
-                        ? "border-amber-200 bg-amber-50"
-                        : "border-gray-200 bg-gray-50"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-gray-900">
-                        {pt.emoji} {pt.label}
-                      </span>
-                      {isComplete ? (
-                        <span className="text-xs font-medium text-green-600">✓ Complete</span>
-                      ) : req.is_required ? (
-                        <span className="text-xs font-medium text-amber-600">○ Required</span>
-                      ) : (
-                        <span className="text-xs font-medium text-gray-400">Optional</span>
-                      )}
-                    </div>
-
-                    {req.instruction && (
-                      <p className="text-xs text-gray-500 mb-2">{req.instruction}</p>
-                    )}
-
-                    {/* Uploaded photos */}
-                    {subs.length > 0 && (
-                      <div className="space-y-2 mb-2">
-                        {subs.map((sub) => (
-                          <div key={sub.id}>
-                            <div className="flex items-start gap-2">
-                              <div className="relative flex-shrink-0">
-                                {sub.photo_url ? (
-                                  <img
-                                    src={sub.photo_url}
-                                    alt={`${pt.label} proof`}
-                                    className="w-16 h-16 object-cover rounded-lg border border-gray-200"
-                                  />
-                                ) : (
-                                  <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center text-xs text-gray-400">
-                                    📷
-                                  </div>
-                                )}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="text-xs text-gray-400">
-                                  {new Date(sub.server_timestamp).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit", hour12: true })}
-                                </div>
-                                {sub.status === "CORRECTION_REQUIRED" && (
-                                  <div className="mt-1">
-                                    <div className="text-xs text-red-600 font-medium mb-1">⚠ Correction Required</div>
-                                    <input
-                                      type="file"
-                                      accept="image/*"
-                                      capture="environment"
-                                      onChange={(e) => {
-                                        const file = e.target.files?.[0];
-                                        if (file) handleCorrectionUpload(sub.id, file);
-                                        e.target.value = "";
-                                      }}
-                                      className="hidden"
-                                      id={`correction-${sub.id}`}
-                                    />
-                                    <label
-                                      htmlFor={`correction-${sub.id}`}
-                                      className={`inline-block px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer ${
-                                        uploading === sub.id
-                                          ? "bg-gray-200 text-gray-400"
-                                          : "bg-red-600 text-white"
-                                      }`}
-                                    >
-                                      {uploading === sub.id ? "Uploading…" : "📷 Upload Replacement"}
-                                    </label>
-                                  </div>
-                                )}
-                                {sub.status === "APPROVED" && (
-                                  <div className="text-xs text-green-600 font-medium">✓ Approved</div>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    <div className="text-xs text-gray-400 mb-2">
-                      {subs.length} of {req.minimum_photos}–{req.maximum_photos} photos
-                    </div>
-
-                    {/* Upload button */}
-                    {canUpload && (
-                      <div>
-                        <input
-                          ref={(el) => { fileInputRefs.current[req.id] = el; }}
-                          type="file"
-                          accept="image/*"
-                          capture="environment"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) handlePhotoUpload(req.id, req.proof_type, file);
-                            e.target.value = "";
-                          }}
-                          className="hidden"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => fileInputRefs.current[req.id]?.click()}
-                          disabled={isUploading}
-                          className={`w-full rounded-lg py-2.5 text-sm font-medium transition-colors ${
-                            isUploading
-                              ? "bg-gray-200 text-gray-400"
-                              : "bg-blue-600 text-white hover:bg-blue-700"
-                          }`}
-                        >
-                          {isUploading ? "Uploading…" : subs.length > 0 ? "📷 Add Another Photo" : "📷 Take Photo"}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Accept / Decline buttons — only for pending shifts */}
+        {/* ═══════════════════════════════════════════ */}
+        {/* PHASE: PENDING — Accept / Decline          */}
+        {/* ═══════════════════════════════════════════ */}
         {shift.status === "pending" && (
           <div className="flex gap-3 mt-6">
             <button
@@ -510,7 +415,6 @@ export default function ShiftDetailPage() {
           </div>
         )}
 
-        {/* Updated shift — requires reconfirmation */}
         {shift.status === "updated_pending" && (
           <div className="mt-6">
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
@@ -543,175 +447,340 @@ export default function ShiftDetailPage() {
           </div>
         )}
 
-        {/* Attendance check-in / check-out section */}
-        {attendanceInfo?.attendanceRequired && (shift.status === "accepted" || shift.status === "updated_pending" || isWorking) && (
-          <div className="mt-6 border-t border-gray-200 pt-5">
-            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
-              📍 Attendance
-            </h2>
+        {/* ═══════════════════════════════════════════ */}
+        {/* PHASE: CHECKIN — Only check-in button      */}
+        {/* ═══════════════════════════════════════════ */}
+        {phase === "CHECKIN" && (
+          <div className="mt-6">
+            <div className="bg-purple-50 border border-purple-200 rounded-xl p-5 text-center">
+              <div className="text-3xl mb-2">📍</div>
+              <h2 className="text-lg font-bold text-purple-900 mb-1">Check In First</h2>
+              <p className="text-sm text-purple-700 mb-4">
+                You need to check in at{" "}
+                <span className="font-semibold">{attendanceInfo?.location?.name || shift.location}</span>{" "}
+                before starting this shift.
+              </p>
+              <button
+                onClick={() => router.push(`/employee/checkin/${shift.id}`)}
+                className="w-full bg-purple-600 text-white rounded-xl py-3.5 text-base font-bold
+                           hover:bg-purple-700 transition-colors"
+              >
+                📍 CHECK IN
+              </button>
+            </div>
+          </div>
+        )}
 
-            {(() => {
-              const record = attendanceInfo.record;
-              const checkedIn = record && record.checkin_status !== "NOT_CHECKED_IN";
-              const checkedOut = record && record.checkout_status && record.checkout_status !== "NOT_CHECKED_OUT";
+        {/* ═══════════════════════════════════════════ */}
+        {/* PHASE: START — Checked in badge + Start    */}
+        {/* ═══════════════════════════════════════════ */}
+        {phase === "START" && (
+          <div className="mt-6">
+            {/* Show check-in completion badge if attendance was required */}
+            {attendanceRequired && attendanceInfo?.record && attendanceInfo.record.checkin_status !== "NOT_CHECKED_IN" && (
+              <div className="flex items-center gap-2 mb-4 bg-green-50 border border-green-200 rounded-lg px-4 py-2.5">
+                <span className="text-green-600 text-sm">✓</span>
+                <span className="text-sm text-green-700 font-medium">
+                  Checked in
+                  {attendanceInfo.record.actual_checkin && (
+                    <span className="text-green-600 font-normal">
+                      {" "}at {new Date(attendanceInfo.record.actual_checkin).toLocaleTimeString("en-AU", {
+                        hour: "numeric", minute: "2-digit", hour12: true,
+                      })}
+                    </span>
+                  )}
+                </span>
+              </div>
+            )}
 
-              if (checkedIn && record) {
-                return (
-                  <div>
-                    {/* Check-in status */}
-                    <div className={`rounded-xl p-4 ${
-                      record.checkin_status === "PRESENT" || record.checkin_status === "APPROVED_MANUALLY"
-                        ? "bg-green-50 border border-green-200"
-                        : "bg-amber-50 border border-amber-200"
-                    }`}>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className={record.checkin_status === "PRESENT" || record.checkin_status === "APPROVED_MANUALLY" ? "text-green-600" : "text-amber-600"}>
-                          {record.checkin_status === "PRESENT" || record.checkin_status === "APPROVED_MANUALLY" ? "✓" : "⚠"}
-                        </span>
-                        <span className={`font-semibold ${
-                          record.checkin_status === "PRESENT" || record.checkin_status === "APPROVED_MANUALLY" ? "text-green-700" : "text-amber-700"
-                        }`}>
-                          {record.checkin_status === "PRESENT" ? "Present" :
-                           record.checkin_status === "APPROVED_MANUALLY" ? "Approved" :
-                           record.checkin_status === "LATE" ? "Checked In — Late" :
-                           "Needs Review"}
-                        </span>
-                      </div>
-                      {record.actual_checkin && (
-                        <p className="text-xs text-gray-500 mt-1">
-                          Checked in at {new Date(record.actual_checkin).toLocaleTimeString("en-AU", {
-                            hour: "numeric", minute: "2-digit", hour12: true
-                          })}
-                        </p>
-                      )}
-                      {record.checkin_distance_metres != null && (
-                        <p className="text-xs text-gray-500">{record.checkin_distance_metres}m from site</p>
-                      )}
-                    </div>
+            <button
+              onClick={() => router.push(`/employee/start-shift/${shift.id}`)}
+              className="w-full bg-blue-600 text-white rounded-xl py-4 text-lg font-bold
+                         hover:bg-blue-700 transition-colors"
+            >
+              ▶ START SHIFT
+            </button>
+          </div>
+        )}
 
-                    {/* Checkout status */}
-                    {checkedOut ? (
-                      <div className={`rounded-xl p-4 mt-3 ${
-                        record.checkout_status === "CHECKED_OUT" || record.checkout_status === "AUTO_CHECKOUT"
-                          ? "bg-indigo-50 border border-indigo-200"
-                          : "bg-amber-50 border border-amber-200"
-                      }`}>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className={record.checkout_status === "CHECKED_OUT" || record.checkout_status === "AUTO_CHECKOUT" ? "text-indigo-600" : "text-amber-600"}>
-                            {record.checkout_status === "CHECKED_OUT" || record.checkout_status === "AUTO_CHECKOUT" ? "✓" : "⚠"}
-                          </span>
-                          <span className={`font-semibold ${
-                            record.checkout_status === "CHECKED_OUT" || record.checkout_status === "AUTO_CHECKOUT" ? "text-indigo-700" : "text-amber-700"
-                          }`}>
-                            {record.checkout_status === "CHECKED_OUT" ? "Checked Out" :
-                             record.checkout_status === "AUTO_CHECKOUT" ? "Auto Checked Out" :
-                             record.checkout_status === "EARLY_DEPARTURE" ? "Early Departure" :
-                             record.checkout_status === "LATE_DEPARTURE" ? "Late Finish" :
-                             "Checkout — Needs Review"}
-                          </span>
-                        </div>
-                        {record.actual_checkout && (
-                          <p className="text-xs text-gray-500 mt-1">
-                            Checked out at {new Date(record.actual_checkout).toLocaleTimeString("en-AU", {
-                              hour: "numeric", minute: "2-digit", hour12: true
-                            })}
-                          </p>
-                        )}
-                        {record.checkout_distance_metres != null && (
-                          <p className="text-xs text-gray-500">{record.checkout_distance_metres}m from site</p>
-                        )}
-                      </div>
-                    ) : isWorking ? (
-                      /* Show CHECK OUT button when shift is in progress */
-                      <button
-                        onClick={() => router.push(`/employee/checkout/${shift.id}`)}
-                        className="w-full mt-3 bg-indigo-600 text-white rounded-xl py-3.5 text-base font-bold
-                                   hover:bg-indigo-700 transition-colors"
-                      >
-                        📍 CHECK OUT
-                      </button>
-                    ) : null}
-
-                    {record.requires_review && (
-                      <p className="text-xs text-amber-600 mt-2">⚠ Flagged for admin review</p>
+        {/* ═══════════════════════════════════════════ */}
+        {/* PHASE: WORKING — Active shift              */}
+        {/* ═══════════════════════════════════════════ */}
+        {phase === "WORKING" && (
+          <div className="mt-6 space-y-4">
+            {/* Completed steps summary */}
+            <div className="space-y-1.5">
+              {attendanceRequired && attendanceInfo?.record && attendanceInfo.record.checkin_status !== "NOT_CHECKED_IN" && (
+                <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 rounded-lg px-3 py-2">
+                  <span>✓</span>
+                  <span>
+                    Checked in
+                    {attendanceInfo.record.actual_checkin && (
+                      <span className="text-green-600">
+                        {" "}at {new Date(attendanceInfo.record.actual_checkin).toLocaleTimeString("en-AU", {
+                          hour: "numeric", minute: "2-digit", hour12: true,
+                        })}
+                      </span>
                     )}
+                    {attendanceInfo.record.checkin_distance_metres != null && (
+                      <span className="text-green-600"> · {attendanceInfo.record.checkin_distance_metres}m</span>
+                    )}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Task Proof Section — only shown during WORKING phase */}
+            {proofRequirements.length > 0 && (
+              <div className="border-t border-gray-200 pt-4">
+                <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                  📷 Task Proof {proofRequirements.some((r) => r.is_required) ? "Required" : ""}
+                </h2>
+
+                {uploadError && (
+                  <div className="bg-red-50 text-red-700 text-sm rounded-lg p-3 border border-red-200 mb-3">
+                    {uploadError}
+                  </div>
+                )}
+
+                {/* Progress */}
+                {(() => {
+                  const requiredReqs = proofRequirements.filter((r) => r.is_required);
+                  const completedRequired = requiredReqs.filter((r) => {
+                    const subs = getSubmissionsForReq(r.id);
+                    return subs.length >= r.minimum_photos;
+                  });
+                  const total = requiredReqs.length;
+                  const done = completedRequired.length;
+                  return total > 0 ? (
+                    <div className="mb-4">
+                      <div className="flex items-center justify-between text-sm mb-1">
+                        <span className="text-gray-600">
+                          {done} of {total} required proof{total !== 1 ? "s" : ""} completed
+                        </span>
+                        {done >= total ? (
+                          <span className="text-green-600 font-medium">✓ Complete</span>
+                        ) : (
+                          <span className="text-amber-600 font-medium">○ Incomplete</span>
+                        )}
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-1.5">
+                        <div
+                          className={`h-1.5 rounded-full transition-all ${
+                            done >= total ? "bg-green-500" : "bg-amber-500"
+                          }`}
+                          style={{ width: `${total > 0 ? (done / total) * 100 : 0}%` }}
+                        />
+                      </div>
+                    </div>
+                  ) : null;
+                })()}
+
+                {/* Per-requirement cards */}
+                <div className="space-y-3">
+                  {proofRequirements.map((req) => {
+                    const pt = PROOF_TYPE_LABELS[req.proof_type] || { label: req.proof_type, emoji: "📎" };
+                    const subs = getSubmissionsForReq(req.id);
+                    const isComplete = subs.length >= req.minimum_photos;
+                    const canUpload = subs.length < req.maximum_photos;
+                    const isUploading = uploading === req.id;
+
+                    return (
+                      <div
+                        key={req.id}
+                        className={`rounded-xl border p-4 ${
+                          isComplete
+                            ? "border-green-200 bg-green-50"
+                            : req.is_required
+                            ? "border-amber-200 bg-amber-50"
+                            : "border-gray-200 bg-gray-50"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-medium text-gray-900">
+                            {pt.emoji} {pt.label}
+                          </span>
+                          {isComplete ? (
+                            <span className="text-xs font-medium text-green-600">✓ Complete</span>
+                          ) : req.is_required ? (
+                            <span className="text-xs font-medium text-amber-600">○ Required</span>
+                          ) : (
+                            <span className="text-xs font-medium text-gray-400">Optional</span>
+                          )}
+                        </div>
+
+                        {req.instruction && (
+                          <p className="text-xs text-gray-500 mb-2">{req.instruction}</p>
+                        )}
+
+                        {/* Uploaded photos */}
+                        {subs.length > 0 && (
+                          <div className="space-y-2 mb-2">
+                            {subs.map((sub) => (
+                              <div key={sub.id}>
+                                <div className="flex items-start gap-2">
+                                  <div className="relative flex-shrink-0">
+                                    {sub.photo_url ? (
+                                      <img
+                                        src={sub.photo_url}
+                                        alt={`${pt.label} proof`}
+                                        className="w-16 h-16 object-cover rounded-lg border border-gray-200"
+                                      />
+                                    ) : (
+                                      <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center text-xs text-gray-400">
+                                        📷
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-xs text-gray-400">
+                                      {new Date(sub.server_timestamp).toLocaleTimeString("en-AU", {
+                                        hour: "numeric",
+                                        minute: "2-digit",
+                                        hour12: true,
+                                      })}
+                                    </div>
+                                    {sub.status === "CORRECTION_REQUIRED" && (
+                                      <div className="mt-1">
+                                        <div className="text-xs text-red-600 font-medium mb-1">⚠ Correction Required</div>
+                                        <input
+                                          type="file"
+                                          accept="image/*"
+                                          capture="environment"
+                                          onChange={(e) => {
+                                            const file = e.target.files?.[0];
+                                            if (file) handleCorrectionUpload(sub.id, file);
+                                            e.target.value = "";
+                                          }}
+                                          className="hidden"
+                                          id={`correction-${sub.id}`}
+                                        />
+                                        <label
+                                          htmlFor={`correction-${sub.id}`}
+                                          className={`inline-block px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer ${
+                                            uploading === sub.id
+                                              ? "bg-gray-200 text-gray-400"
+                                              : "bg-red-600 text-white"
+                                          }`}
+                                        >
+                                          {uploading === sub.id ? "Uploading…" : "📷 Upload Replacement"}
+                                        </label>
+                                      </div>
+                                    )}
+                                    {sub.status === "APPROVED" && (
+                                      <div className="text-xs text-green-600 font-medium">✓ Approved</div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="text-xs text-gray-400 mb-2">
+                          {subs.length} of {req.minimum_photos}–{req.maximum_photos} photos
+                        </div>
+
+                        {/* Upload button */}
+                        {canUpload && (
+                          <div>
+                            <input
+                              ref={(el) => {
+                                fileInputRefs.current[req.id] = el;
+                              }}
+                              type="file"
+                              accept="image/*"
+                              capture="environment"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handlePhotoUpload(req.id, req.proof_type, file);
+                                e.target.value = "";
+                              }}
+                              className="hidden"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => fileInputRefs.current[req.id]?.click()}
+                              disabled={isUploading}
+                              className={`w-full rounded-lg py-2.5 text-sm font-medium transition-colors ${
+                                isUploading
+                                  ? "bg-gray-200 text-gray-400"
+                                  : "bg-blue-600 text-white hover:bg-blue-700"
+                              }`}
+                            >
+                              {isUploading ? "Uploading…" : subs.length > 0 ? "📷 Add Another Photo" : "📷 Take Photo"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Attendance check-out — only during WORKING phase */}
+            {attendanceRequired && attendanceInfo?.record && (() => {
+              const record = attendanceInfo.record!;
+              const checkedOut = record.checkout_status && record.checkout_status !== "NOT_CHECKED_OUT";
+
+              if (checkedOut) {
+                return (
+                  <div className="flex items-center gap-2 text-sm text-indigo-700 bg-indigo-50 rounded-lg px-3 py-2">
+                    <span>✓</span>
+                    <span>
+                      Checked out
+                      {record.actual_checkout && (
+                        <span className="text-indigo-600">
+                          {" "}at {new Date(record.actual_checkout).toLocaleTimeString("en-AU", {
+                            hour: "numeric", minute: "2-digit", hour12: true,
+                          })}
+                        </span>
+                      )}
+                    </span>
                   </div>
                 );
               }
 
-              // Not checked in — show CHECK IN button
               return (
-                <div>
-                  <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 mb-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-gray-400">○</span>
-                      <span className="text-gray-600 text-sm">Not Checked In</span>
-                    </div>
-                    {attendanceInfo.location && (
-                      <p className="text-xs text-gray-400 mt-1">{attendanceInfo.location.name}</p>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => router.push(`/employee/checkin/${shift.id}`)}
-                    className="w-full bg-purple-600 text-white rounded-xl py-3.5 text-base font-bold
-                               hover:bg-purple-700 transition-colors"
-                  >
-                    📍 CHECK IN
-                  </button>
-                </div>
+                <button
+                  onClick={() => router.push(`/employee/checkout/${shift.id}`)}
+                  className="w-full bg-indigo-600 text-white rounded-xl py-3 text-base font-bold
+                             hover:bg-indigo-700 transition-colors"
+                >
+                  📍 CHECK OUT
+                </button>
               );
             })()}
+
+            {/* Finish Shift — always shown during WORKING */}
+            <button
+              onClick={() => router.push(`/employee/finish-shift/${shift.id}`)}
+              className="w-full bg-red-600 text-white rounded-xl py-4 text-lg font-bold
+                         hover:bg-red-700 transition-colors animate-pulse"
+            >
+              🏁 FINISH SHIFT
+            </button>
           </div>
         )}
 
-        {/* Start Shift button — only for accepted shifts that haven't been started */}
-        {shift.status === "accepted" && !isWorking && (() => {
-          const needsCheckin = attendanceInfo?.attendanceRequired &&
-            (!attendanceInfo.record || attendanceInfo.record.checkin_status === "NOT_CHECKED_IN");
-          return (
-            <>
-              {needsCheckin && (
-                <p className="mt-4 text-center text-sm text-amber-600 font-medium">
-                  ⚠ You must check in before starting this shift
-                </p>
-              )}
-              <button
-                onClick={() => router.push(`/employee/start-shift/${shift.id}`)}
-                disabled={!!needsCheckin}
-                className={`w-full mt-3 bg-blue-600 text-white rounded-lg py-3 text-base font-bold
-                           transition-colors ${
-                             needsCheckin
-                               ? "opacity-50 cursor-not-allowed"
-                               : "hover:bg-blue-700"
-                           }`}
-              >
-                START SHIFT
-              </button>
-            </>
-          );
-        })()}
-
-        {/* Finish Shift button — only when actively working */}
-        {isWorking && (
-          <button
-            onClick={() => router.push(`/employee/finish-shift/${shift.id}`)}
-            className="w-full mt-6 bg-red-600 text-white rounded-lg py-3 text-base font-bold
-                       hover:bg-red-700 transition-colors animate-pulse"
-          >
-            🏁 FINISH SHIFT
-          </button>
+        {/* ═══════════════════════════════════════════ */}
+        {/* PHASE: DONE — Completed summary            */}
+        {/* ═══════════════════════════════════════════ */}
+        {phase === "DONE" && (
+          <div className="mt-6 text-center">
+            <div className="text-3xl mb-2">✅</div>
+            <p className="text-sm text-green-600 font-medium">This shift has been completed.</p>
+          </div>
         )}
 
-        {/* Status messages */}
-        {shift.status === "declined" && (
-          <p className="mt-6 text-center text-sm text-gray-500">
-            You declined this shift.
-          </p>
-        )}
-        {shift.status === "completed" && (
-          <p className="mt-6 text-center text-sm text-green-600 font-medium">
-            This shift has been completed.
-          </p>
+        {/* ═══════════════════════════════════════════ */}
+        {/* PHASE: DECLINED                            */}
+        {/* ═══════════════════════════════════════════ */}
+        {phase === "DECLINED" && (
+          <div className="mt-6 text-center">
+            <p className="text-sm text-gray-500">You declined this shift.</p>
+          </div>
         )}
       </div>
     </div>

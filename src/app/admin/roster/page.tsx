@@ -266,6 +266,7 @@ export default function RosterPage() {
   const [createStartTime, setCreateStartTime] = useState("");
   const [createEndTime, setCreateEndTime] = useState("");
   const [createLocation, setCreateLocation] = useState("");
+  const [workLocations, setWorkLocations] = useState<{ id: string; name: string }[]>([]);
   const [createInstructions, setCreateInstructions] = useState("");
   const [availableEmployees, setAvailableEmployees] = useState<AvailableEmployee[]>([]);
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<string[]>([]);
@@ -327,7 +328,11 @@ export default function RosterPage() {
       fetch("/api/employees").then((r) => r.json()),
       fetch("/api/events?upcoming=true").then((r) => r.json()),
       fetch(`/api/attendance/roster?startDate=${startDate}&endDate=${endDate}`).then((r) => r.json()).catch(() => ({ records: {} })),
-    ]).then(([shiftsData, employeesData, eventsData, attendanceData]) => {
+      fetch("/api/work-locations").then((r) => r.json()).catch(() => []),
+    ]).then(([shiftsData, employeesData, eventsData, attendanceData, locationsData]) => {
+      if (Array.isArray(locationsData)) {
+        setWorkLocations(locationsData.map((l: { id: string; name: string }) => ({ id: l.id, name: l.name })));
+      }
       if (Array.isArray(shiftsData)) {
         setShifts(shiftsData);
         // Build event name map from event-linked shifts
@@ -1837,9 +1842,16 @@ export default function RosterPage() {
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
-                        <input type="text" value={editLocation} onChange={(e) => setEditLocation(e.target.value)}
-                          placeholder="e.g. Campbelltown"
-                          className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        <select value={editLocation} onChange={(e) => setEditLocation(e.target.value)}
+                          className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                          <option value="">Select a location…</option>
+                          {workLocations.map((loc) => (
+                            <option key={loc.id} value={loc.name}>{loc.name}</option>
+                          ))}
+                          {editLocation && !workLocations.some((loc) => loc.name === editLocation) && (
+                            <option value={editLocation}>{editLocation} (custom)</option>
+                          )}
+                        </select>
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Instructions</label>
@@ -2103,9 +2115,13 @@ export default function RosterPage() {
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
-                        <input type="text" value={createLocation} onChange={(e) => setCreateLocation(e.target.value)}
-                          placeholder="e.g. St Helens"
-                          className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        <select value={createLocation} onChange={(e) => setCreateLocation(e.target.value)}
+                          className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                          <option value="">Select a location…</option>
+                          {workLocations.map((loc) => (
+                            <option key={loc.id} value={loc.name}>{loc.name}</option>
+                          ))}
+                        </select>
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Instructions (optional)</label>

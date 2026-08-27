@@ -36,6 +36,18 @@ interface OpenOffer {
   recipients: OfferRecipient[];
 }
 
+interface AttendanceRecord {
+  id: string;
+  shift_id: string;
+  employee_id: string;
+  checkin_status: string;
+  checkout_status: string;
+  actual_checkin: string | null;
+  actual_checkout: string | null;
+  verification_status: string;
+  requires_review: boolean;
+}
+
 interface StaffingEvent {
   id: string;
   name: string;
@@ -49,6 +61,7 @@ interface StaffingEvent {
   eventShifts: EventShift[];
   offers: OpenOffer[];
   employeeMap: Record<string, string>;
+  attendanceMap: Record<string, AttendanceRecord>;
 }
 
 function formatTime(iso: string): string {
@@ -249,6 +262,122 @@ export default function EventDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Live Attendance */}
+      {assignedShifts.length > 0 && (
+        (() => {
+          const checkedIn = assignedShifts.filter(
+            (s) => {
+              const att = event.attendanceMap?.[s.id];
+              return att && att.checkin_status !== "NOT_CHECKED_IN";
+            }
+          );
+          const checkedOut = assignedShifts.filter(
+            (s) => {
+              const att = event.attendanceMap?.[s.id];
+              return att && att.actual_checkout;
+            }
+          );
+          const notCheckedIn = assignedShifts.filter(
+            (s) => !event.attendanceMap?.[s.id] || event.attendanceMap[s.id].checkin_status === "NOT_CHECKED_IN"
+          );
+          const needsReview = assignedShifts.filter(
+            (s) => {
+              const att = event.attendanceMap?.[s.id];
+              return att && (att.requires_review || att.verification_status === "NEEDS_REVIEW");
+            }
+          );
+
+          return (
+            <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-4">
+              <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                📋 Attendance
+              </h2>
+
+              {/* Summary */}
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                <div className="bg-green-50 rounded-lg p-2 text-center">
+                  <div className="text-lg font-bold text-green-600">{checkedIn.length}</div>
+                  <div className="text-xs text-green-700">Checked In</div>
+                </div>
+                <div className="bg-indigo-50 rounded-lg p-2 text-center">
+                  <div className="text-lg font-bold text-indigo-600">{checkedOut.length}</div>
+                  <div className="text-xs text-indigo-700">Checked Out</div>
+                </div>
+                <div className={`rounded-lg p-2 text-center ${notCheckedIn.length > 0 ? "bg-red-50" : "bg-gray-50"}`}>
+                  <div className={`text-lg font-bold ${notCheckedIn.length > 0 ? "text-red-600" : "text-gray-400"}`}>
+                    {notCheckedIn.length}
+                  </div>
+                  <div className={`text-xs ${notCheckedIn.length > 0 ? "text-red-700" : "text-gray-400"}`}>
+                    Not Checked In
+                  </div>
+                </div>
+              </div>
+
+              {/* Alert for missing check-ins */}
+              {notCheckedIn.length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-3 text-sm text-red-700">
+                  ⚠ {notCheckedIn.length} worker{notCheckedIn.length !== 1 ? "s" : ""} not checked in
+                </div>
+              )}
+
+              {/* Needs review alert */}
+              {needsReview.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-3 text-sm text-amber-700">
+                  ⏳ {needsReview.length} attendance record{needsReview.length !== 1 ? "s" : ""} need{needsReview.length === 1 ? "s" : ""} review
+                </div>
+              )}
+
+              {/* Per-worker attendance */}
+              <div className="space-y-1.5">
+                {assignedShifts.map((s) => {
+                  const att = event.attendanceMap?.[s.id];
+                  const name = event.employeeMap[s.employee_id] || "Unknown";
+
+                  let statusLabel = "○ Not Checked In";
+                  let statusColor = "text-gray-400";
+
+                  if (att) {
+                    if (att.actual_checkout) {
+                      statusLabel = `✓ In & Out`;
+                      statusColor = "text-green-600";
+                    } else if (att.checkin_status === "PRESENT" || att.checkin_status === "APPROVED_MANUALLY") {
+                      statusLabel = `✓ In ${att.actual_checkin ? formatTime(att.actual_checkin) : ""}`;
+                      statusColor = "text-green-600";
+                    } else if (att.checkin_status === "LATE") {
+                      statusLabel = `⚠ Late ${att.actual_checkin ? formatTime(att.actual_checkin) : ""}`;
+                      statusColor = "text-amber-600";
+                    } else if (att.checkin_status === "NEEDS_REVIEW") {
+                      statusLabel = "⚠ Review";
+                      statusColor = "text-red-600";
+                    }
+                  }
+
+                  return (
+                    <div key={s.id} className="flex items-center justify-between bg-gray-50 rounded-lg p-2.5 text-sm">
+                      <span className="font-medium text-gray-900">{name}</span>
+                      <span className={`text-xs font-medium ${statusColor}`}>
+                        {statusLabel}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Link to find replacement if workers missing */}
+              {notCheckedIn.length > 0 && isActive && (
+                <Link
+                  href={`/admin/events/${event.id}/find-workers`}
+                  className="block w-full bg-orange-500 text-white rounded-xl py-2.5 text-sm font-semibold
+                             hover:bg-orange-600 transition-colors text-center mt-3"
+                >
+                  🔍 Find Replacement
+                </Link>
+              )}
+            </div>
+          );
+        })()
+      )}
 
       {/* Open Offers */}
       {event.offers && event.offers.length > 0 && (

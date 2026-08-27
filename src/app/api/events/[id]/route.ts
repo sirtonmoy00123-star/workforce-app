@@ -75,6 +75,27 @@ export async function GET(
       }
     }
 
+    // Get attendance records for event shifts
+    const eventShiftIds = (eventShifts || []).map((s) => s.id);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let attendanceMap: Record<string, any> = {};
+    if (eventShiftIds.length > 0) {
+      const { data: attRecords } = await adminClient
+        .from("attendance_records")
+        .select(
+          "id, shift_id, employee_id, checkin_status, checkout_status, " +
+          "actual_checkin, actual_checkout, verification_status, requires_review"
+        )
+        .eq("business_id", ctx.businessId)
+        .in("shift_id", eventShiftIds) as { data: Record<string, any>[] | null };
+
+      if (attRecords) {
+        for (const r of attRecords) {
+          attendanceMap[r.shift_id as string] = r;
+        }
+      }
+    }
+
     // Get audit log
     const { data: auditLog } = await adminClient
       .from("event_audit_log")
@@ -95,6 +116,7 @@ export async function GET(
       offers: offersWithRecipients,
       eventShifts: eventShifts || [],
       employeeMap,
+      attendanceMap,
       auditLog: auditLog || [],
     });
   } catch (err) {

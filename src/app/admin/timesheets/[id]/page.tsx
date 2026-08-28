@@ -42,6 +42,10 @@ interface TimesheetDetail {
   actual_start: string;
   actual_finish: string;
   worked_minutes: number;
+  payable_worked_minutes: number | null;
+  paid_break_minutes: number;
+  unpaid_break_minutes: number;
+  adjustment_amount: number;
   start_odometer: number;
   finish_odometer: number;
   distance_km: number;
@@ -718,9 +722,31 @@ export default function AdminTimesheetDetailPage() {
             <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
               <h2 className="font-semibold text-gray-900">Hours & Distance</h2>
               <div className="flex justify-between">
-                <span className="text-gray-500">Hours Worked</span>
+                <span className="text-gray-500">Actual Hours</span>
                 <span className="font-medium">{formatDuration(timesheet.worked_minutes)}</span>
               </div>
+              {timesheet.payable_worked_minutes != null && timesheet.payable_worked_minutes !== timesheet.worked_minutes && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Payable Hours</span>
+                  <span className="font-medium text-blue-600">{formatDuration(timesheet.payable_worked_minutes)}</span>
+                </div>
+              )}
+              {(timesheet.unpaid_break_minutes > 0 || timesheet.paid_break_minutes > 0) && (
+                <>
+                  {timesheet.unpaid_break_minutes > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Unpaid Break</span>
+                      <span className="font-medium text-amber-600">−{timesheet.unpaid_break_minutes}m</span>
+                    </div>
+                  )}
+                  {timesheet.paid_break_minutes > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Paid Break</span>
+                      <span className="font-medium">{timesheet.paid_break_minutes}m</span>
+                    </div>
+                  )}
+                </>
+              )}
               <div className="flex justify-between">
                 <span className="text-gray-500">Start Odometer</span>
                 <span className="font-medium">{timesheet.start_odometer.toLocaleString()} km</span>
@@ -755,9 +781,20 @@ export default function AdminTimesheetDetailPage() {
                 <span className="text-gray-500">Mileage</span>
                 <span className="font-medium">${timesheet.mileage_amount.toFixed(2)}</span>
               </div>
+              {timesheet.adjustment_amount !== 0 && (
+                <>
+                  <hr className="my-1" />
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Adjustment</span>
+                    <span className={`font-medium ${timesheet.adjustment_amount > 0 ? "text-green-600" : "text-red-600"}`}>
+                      {timesheet.adjustment_amount > 0 ? "+" : ""}${timesheet.adjustment_amount.toFixed(2)}
+                    </span>
+                  </div>
+                </>
+              )}
               <hr className="my-1" />
               <div className="flex justify-between font-bold">
-                <span>Estimated Total</span>
+                <span>Total</span>
                 <span className="text-green-600">${timesheet.total_amount.toFixed(2)}</span>
               </div>
               {timesheet.approved_total !== null && (

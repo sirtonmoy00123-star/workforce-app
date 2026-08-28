@@ -13,6 +13,10 @@ interface TimesheetDetail {
   actual_start: string;
   actual_finish: string;
   worked_minutes: number;
+  payable_worked_minutes: number | null;
+  paid_break_minutes: number;
+  unpaid_break_minutes: number;
+  adjustment_amount: number;
   start_odometer: number;
   finish_odometer: number;
   distance_km: number;
@@ -574,16 +578,28 @@ export default function EmployeeTimesheetCorrectionPage() {
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-500">Hours</span>
+              <span className="text-gray-500">Actual Hours</span>
               <span className="font-medium">{formatDuration(timesheet.worked_minutes)}</span>
             </div>
+            {timesheet.payable_worked_minutes != null && timesheet.payable_worked_minutes !== timesheet.worked_minutes && (
+              <div className="flex justify-between">
+                <span className="text-gray-500">Payable Hours</span>
+                <span className="font-medium text-blue-600">{formatDuration(timesheet.payable_worked_minutes)}</span>
+              </div>
+            )}
+            {timesheet.unpaid_break_minutes > 0 && (
+              <div className="flex justify-between">
+                <span className="text-gray-500">Unpaid Break</span>
+                <span className="font-medium text-amber-600">−{timesheet.unpaid_break_minutes}m</span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span className="text-gray-500">Distance</span>
               <span className="font-medium">{timesheet.distance_km} km</span>
             </div>
             <hr />
             <div className="flex justify-between font-bold">
-              <span>{timesheet.status === "approved" ? "Approved Total" : "Estimated Total"}</span>
+              <span>{timesheet.status === "approved" ? "Approved Total" : "Total"}</span>
               <span className="text-green-600">
                 ${(timesheet.approved_total ?? timesheet.total_amount).toFixed(2)}
               </span>

@@ -96,7 +96,7 @@ export default function EmployeeTimesheetsPage() {
                 </div>
                 <div className="mt-2 pt-2 border-t border-gray-100 flex justify-between text-sm">
                   <span className="text-gray-500">
-                    {ts.status === "approved" ? "Approved Total" : "Estimated Total"}
+                    {ts.status === "approved" ? "Approved Total" : "Total"}
                   </span>
                   <span className="font-bold text-gray-900">
                     ${(ts.approved_total ?? ts.total_amount).toFixed(2)}

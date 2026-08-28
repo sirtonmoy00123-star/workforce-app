@@ -153,8 +153,8 @@ export type Database = {
           recurrence_type: "NONE" | "NEXT_WEEK" | "WEEKLY_END_OF_MONTH" | "WEEKLY_CUSTOM_END";
           recurrence_end_date: string | null;
           require_odometer: boolean | null;
-          hourly_rate_snapshot: number | null;
-          mileage_rate_snapshot: number | null;
+          hourly_rate_snapshot: number;
+          mileage_rate_snapshot: number;
           location_id: string | null;
           created_by: string | null;
           updated_by: string | null;

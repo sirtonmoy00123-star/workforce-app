@@ -54,10 +54,11 @@ export async function GET(
       .eq("id", timesheet.shift_id)
       .single();
 
-    // Get shift_attendance record (actual work start/finish)
-    const { data: shiftAttendance } = await adminClient
-      .from("shift_attendance")
-      .select("actual_start, actual_finish, attendance_status")
+    // Get work session record (actual work start/finish)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: shiftAttendance } = await (adminClient as any)
+      .from("work_sessions")
+      .select("actual_start_at, actual_finish_at, status")
       .eq("shift_id", timesheet.shift_id)
       .maybeSingle();
 
@@ -92,8 +93,8 @@ export async function GET(
       shift_location: shift?.location || null,
       shift_scheduled_start: shift?.scheduled_start || null,
       shift_scheduled_finish: shift?.scheduled_finish || null,
-      shift_work_start: shiftAttendance?.actual_start || null,
-      shift_work_finish: shiftAttendance?.actual_finish || null,
+      shift_work_start: shiftAttendance?.actual_start_at || null,
+      shift_work_finish: shiftAttendance?.actual_finish_at || null,
       attendance: attendanceRecord ? {
         ...attendanceRecord,
         exceptions: attendanceExceptions,

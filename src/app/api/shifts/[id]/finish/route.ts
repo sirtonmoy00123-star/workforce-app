@@ -1,11 +1,11 @@
 // POST /api/shifts/[id]/finish — Employee finishes a shift
-// Optionally uploads finish odometer photo, updates attendance, auto-generates timesheet
+// Optionally uploads finish odometer photo, completes work session, auto-generates timesheet
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireRole, handleTenantError } from "@/lib/services/tenantContext";
-import { calculateWorkedMinutes } from "@/lib/calculations/time";
-import { calculateMileage } from "@/lib/calculations/mileage";
-import { calculatePayment } from "@/lib/calculations/payment";
+import { canFinishWork, type ShiftState } from "@/lib/services/shiftStateMachine";
+import { finishWorkSession, getWorkSession } from "@/lib/services/workSessionService";
+import { workSessionAudit } from "@/lib/services/auditService";
 
 export async function POST(
   request: Request,
@@ -38,16 +38,18 @@ export async function POST(
       return NextResponse.json({ error: "This shift is not assigned to you." }, { status: 403 });
     }
 
-    // Get attendance record (must be "working")
-    const { data: attendance } = await adminClient
-      .from("shift_attendance")
-      .select("*")
-      .eq("shift_id", shiftId)
-      .eq("employee_id", ctx.employeeId)
-      .single();
+    // ── State machine guard ──
+    const workSession = await getWorkSession(adminClient, shiftId);
 
-    if (!attendance || attendance.attendance_status !== "working") {
-      return NextResponse.json({ error: "This shift has not been started yet." }, { status: 400 });
+    const shiftState: ShiftState = {
+      shiftStatus: shift.status,
+      workSessionStatus: workSession?.status || null,
+      hasCheckedIn: false, // not relevant for finish check
+    };
+
+    const guard = canFinishWork(shiftState);
+    if (!guard.allowed) {
+      return NextResponse.json({ error: guard.reason }, { status: 400 });
     }
 
     // Check odometer requirement: per-shift override > employee default
@@ -192,93 +194,63 @@ export async function POST(
       }
     }
 
-    // Update attendance: set actual_finish and status to completed
-    const { error: attendanceError } = await adminClient
-      .from("shift_attendance")
-      .update({
-        actual_finish: serverNow,
-        attendance_status: "completed",
-      })
-      .eq("id", attendance.id);
+    // ── Finish work session + generate timesheet (via domain service) ──
+    // Use rate snapshots from the shift (set at creation time), falling back to employee rates
+    const hourlyRateSnapshot = shift.hourly_rate_snapshot ?? employee.hourly_rate;
+    const mileageRateSnapshot = shift.mileage_rate_snapshot ?? (odometerEnabled ? employee.mileage_rate : 0);
 
-    if (attendanceError) {
-      console.error("Attendance update error:", attendanceError);
-      return NextResponse.json({ error: "Failed to update attendance." }, { status: 500 });
-    }
+    try {
+      const result = await finishWorkSession(adminClient, {
+        shiftId,
+        employeeId: ctx.employeeId,
+        businessId: ctx.businessId,
+        serverTimestamp: serverNow,
+        hourlyRateSnapshot,
+        mileageRateSnapshot: odometerEnabled ? mileageRateSnapshot : 0,
+        startOdometerReading,
+        finishOdometerReading,
+        scheduledStartAt: shift.scheduled_start,
+        scheduledEndAt: shift.scheduled_finish,
+      });
 
-    // Update shift status to completed
-    const { error: shiftError } = await adminClient
-      .from("shifts")
-      .update({ status: "completed" })
-      .eq("id", shiftId);
+      // Fire-and-forget audit
+      workSessionAudit(
+        "WORK_SESSION_FINISHED",
+        { businessId: ctx.businessId, userId: ctx.userId, role: "EMPLOYEE" },
+        result.workSessionId,
+        {
+          after: {
+            shift_id: shiftId,
+            timesheet_id: result.timesheetId,
+            actual_worked_minutes: result.actualWorkedMinutes,
+            payable_worked_minutes: result.payableWorkedMinutes,
+            total_amount: result.totalAmount,
+          },
+        }
+      );
 
-    if (shiftError) {
-      console.error("Shift update error:", shiftError);
-      return NextResponse.json({ error: "Failed to update shift status." }, { status: 500 });
-    }
-
-    // === AUTO-GENERATE TIMESHEET ===
-    const actualStart = new Date(attendance.actual_start!);
-    const actualFinish = new Date(serverNow);
-    const workedMinutes = calculateWorkedMinutes(actualStart, actualFinish);
-    const distanceKm = odometerEnabled
-      ? calculateMileage(startOdometerReading, finishOdometerReading)
-      : 0;
-
-    // Snapshot the employee's current rates
-    const hourlyRateSnapshot = employee.hourly_rate;
-    const mileageRateSnapshot = odometerEnabled ? employee.mileage_rate : 0;
-
-    const payment = calculatePayment(workedMinutes, distanceKm, hourlyRateSnapshot, mileageRateSnapshot);
-
-    const { data: timesheet, error: timesheetError } = await adminClient
-      .from("timesheets")
-      .insert({
-        shift_id: shiftId,
-        employee_id: ctx.employeeId,
-        business_id: ctx.businessId,
-        scheduled_start: shift.scheduled_start,
-        scheduled_finish: shift.scheduled_finish,
-        actual_start: attendance.actual_start!,
-        actual_finish: serverNow,
-        worked_minutes: workedMinutes,
-        start_odometer: startOdometerReading,
-        finish_odometer: finishOdometerReading,
-        distance_km: distanceKm,
-        hourly_rate_snapshot: hourlyRateSnapshot,
-        mileage_rate_snapshot: mileageRateSnapshot,
-        wage_amount: payment.wageAmount,
-        mileage_amount: payment.mileageAmount,
-        total_amount: payment.totalAmount,
-        status: "submitted",
-      })
-      .select()
-      .single();
-
-    if (timesheetError) {
-      console.error("Timesheet creation error:", timesheetError);
-      // Shift is already completed — don't fail the whole request
       return NextResponse.json({
         success: true,
-        actual_finish: serverNow,
-        message: "Shift finished but timesheet generation failed. Admin will review.",
-        timesheet_error: true,
+        actual_finish: result.actualFinishAt,
+        message: "Shift finished and timesheet submitted!",
+        timesheet: {
+          id: result.timesheetId,
+          worked_minutes: result.actualWorkedMinutes,
+          distance_km: result.distanceKm,
+          wage_amount: result.wageAmount,
+          mileage_amount: result.mileageAmount,
+          total_amount: result.totalAmount,
+        },
       });
+    } catch (finishErr) {
+      console.error("Finish work session error:", finishErr);
+      return NextResponse.json({
+        success: false,
+        actual_finish: serverNow,
+        message: "Failed to finish shift. Please try again or contact admin.",
+        timesheet_error: true,
+      }, { status: 500 });
     }
-
-    return NextResponse.json({
-      success: true,
-      actual_finish: serverNow,
-      message: "Shift finished and timesheet submitted!",
-      timesheet: {
-        id: timesheet.id,
-        worked_minutes: workedMinutes,
-        distance_km: distanceKm,
-        wage_amount: payment.wageAmount,
-        mileage_amount: payment.mileageAmount,
-        total_amount: payment.totalAmount,
-      },
-    });
   } catch (err) {
     return handleTenantError(err);
   }

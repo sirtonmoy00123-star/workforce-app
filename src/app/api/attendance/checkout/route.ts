@@ -16,6 +16,8 @@ import { requireMember, handleTenantError } from "@/lib/services/tenantContext";
 import { validateDynamicQrToken } from "@/lib/services/dynamicQr";
 import { haversineDistanceMetres } from "@/lib/calculations/geo";
 import { notifyAdminException } from "@/lib/services/notificationService";
+import { canCheckout, type ShiftState } from "@/lib/services/shiftStateMachine";
+import { getWorkSession } from "@/lib/services/workSessionService";
 
 export async function POST(request: Request) {
   try {
@@ -49,6 +51,19 @@ export async function POST(request: Request) {
 
     if (shift.employee_id !== ctx.employeeId) {
       return NextResponse.json({ error: "This shift is not assigned to you." }, { status: 403 });
+    }
+
+    // ── State machine guard ──
+    const ws = await getWorkSession(adminClient, shiftId);
+    const shiftState: ShiftState = {
+      shiftStatus: shift.status,
+      workSessionStatus: ws?.status || null,
+      hasCheckedIn: true, // must have checked in to reach checkout
+    };
+
+    const guard = canCheckout(shiftState);
+    if (!guard.allowed) {
+      return NextResponse.json({ error: guard.reason }, { status: 400 });
     }
 
     // ── 2. Load existing attendance record ───────────────────

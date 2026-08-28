@@ -1,8 +1,11 @@
 // POST /api/shifts/[id]/start — Employee starts a shift
-// Creates shift_attendance record, optionally uploads odometer photo + saves odometer submission
+// Creates work_sessions record, optionally uploads odometer photo + saves odometer submission
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireRole, handleTenantError } from "@/lib/services/tenantContext";
+import { canStartWork, type ShiftState } from "@/lib/services/shiftStateMachine";
+import { startWorkSession } from "@/lib/services/workSessionService";
+import { workSessionAudit } from "@/lib/services/auditService";
 
 export async function POST(
   request: Request,
@@ -34,23 +37,10 @@ export async function POST(
     if (shift.employee_id !== ctx.employeeId) {
       return NextResponse.json({ error: "This shift is not assigned to you." }, { status: 403 });
     }
-    if (shift.status !== "accepted") {
-      return NextResponse.json({ error: "Only accepted shifts can be started." }, { status: 400 });
-    }
 
-    // Check if already started (attendance record exists)
-    const { data: existingAttendance } = await adminClient
-      .from("shift_attendance")
-      .select("id")
-      .eq("shift_id", shiftId)
-      .eq("employee_id", ctx.employeeId)
-      .maybeSingle();
-
-    if (existingAttendance) {
-      return NextResponse.json({ error: "This shift has already been started." }, { status: 400 });
-    }
-
-    // Check attendance check-in requirement: if location has attendance enabled, must check in first
+    // ── State machine guard ──
+    // Check attendance requirement for the state machine
+    let attendanceRequired = false;
     if (shift.location_id) {
       const { data: attSettings } = await adminClient
         .from("attendance_settings")
@@ -58,22 +48,39 @@ export async function POST(
         .eq("location_id", shift.location_id)
         .eq("business_id", ctx.businessId)
         .single();
+      attendanceRequired = !!attSettings?.attendance_required;
+    }
 
-      if (attSettings?.attendance_required) {
-        const { data: attRecord } = await adminClient
-          .from("attendance_records")
-          .select("checkin_status")
-          .eq("shift_id", shiftId)
-          .eq("business_id", ctx.businessId)
-          .maybeSingle();
+    // Check if already has a work session
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: existingSession } = await (adminClient as any)
+      .from("work_sessions")
+      .select("id, status")
+      .eq("shift_id", shiftId)
+      .eq("employee_id", ctx.employeeId)
+      .maybeSingle();
 
-        if (!attRecord || attRecord.checkin_status === "NOT_CHECKED_IN") {
-          return NextResponse.json(
-            { error: "You must check in before starting this shift." },
-            { status: 400 }
-          );
-        }
-      }
+    // Check attendance check-in status
+    let hasCheckedIn = false;
+    if (attendanceRequired) {
+      const { data: attRecord } = await adminClient
+        .from("attendance_records")
+        .select("checkin_status")
+        .eq("shift_id", shiftId)
+        .eq("business_id", ctx.businessId)
+        .maybeSingle();
+      hasCheckedIn = !!attRecord && attRecord.checkin_status !== "NOT_CHECKED_IN";
+    }
+
+    const shiftState: ShiftState = {
+      shiftStatus: shift.status,
+      workSessionStatus: existingSession?.status || null,
+      hasCheckedIn,
+    };
+
+    const guard = canStartWork(shiftState, attendanceRequired);
+    if (!guard.allowed) {
+      return NextResponse.json({ error: guard.reason }, { status: 400 });
     }
 
     // Check odometer requirement: per-shift override > employee default
@@ -123,22 +130,6 @@ export async function POST(
         return NextResponse.json({ error: "Failed to upload photo." }, { status: 500 });
       }
 
-      // Create shift_attendance record
-      const { error: attendanceError } = await adminClient
-        .from("shift_attendance")
-        .insert({
-          shift_id: shiftId,
-          employee_id: ctx.employeeId,
-          business_id: ctx.businessId,
-          actual_start: serverNow,
-          attendance_status: "working",
-        });
-
-      if (attendanceError) {
-        console.error("Attendance insert error:", attendanceError);
-        return NextResponse.json({ error: "Failed to record attendance." }, { status: 500 });
-      }
-
       // Create odometer submission record
       const { error: odometerError } = await adminClient
         .from("odometer_submissions")
@@ -156,27 +147,27 @@ export async function POST(
         console.error("Odometer submission error:", odometerError);
         return NextResponse.json({ error: "Failed to save odometer reading." }, { status: 500 });
       }
-    } else {
-      // No odometer — just create attendance record
-      const { error: attendanceError } = await adminClient
-        .from("shift_attendance")
-        .insert({
-          shift_id: shiftId,
-          employee_id: ctx.employeeId,
-          business_id: ctx.businessId,
-          actual_start: serverNow,
-          attendance_status: "working",
-        });
-
-      if (attendanceError) {
-        console.error("Attendance insert error:", attendanceError);
-        return NextResponse.json({ error: "Failed to record attendance." }, { status: 500 });
-      }
     }
+
+    // ── Create work session (idempotent) ──
+    const result = await startWorkSession(adminClient, {
+      shiftId,
+      employeeId: ctx.employeeId,
+      businessId: ctx.businessId,
+      serverTimestamp: serverNow,
+    });
+
+    // Fire-and-forget audit
+    workSessionAudit(
+      "WORK_SESSION_STARTED",
+      { businessId: ctx.businessId, userId: ctx.userId, role: "EMPLOYEE" },
+      result.workSessionId,
+      { after: { shift_id: shiftId, actual_start_at: result.actualStartAt } }
+    );
 
     return NextResponse.json({
       success: true,
-      actual_start: serverNow,
+      actual_start: result.actualStartAt,
       message: "Shift started successfully.",
     });
   } catch (err) {

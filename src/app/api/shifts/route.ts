@@ -3,6 +3,8 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireMember, requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
+import { buildShiftTimestamps, getBusinessTimezone } from "@/lib/calculations/timezone";
+import { shiftAudit } from "@/lib/services/auditService";
 
 export async function GET(request: Request) {
   try {
@@ -71,18 +73,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Employee is not active." }, { status: 400 });
     }
 
-    // Build full timestamps with the client's timezone offset so the stored
-    // UTC value matches the wall-clock time the admin intended.
-    // getTimezoneOffset() returns negative for east-of-UTC, e.g. -600 for UTC+10.
-    const offsetMin = typeof timezoneOffsetMinutes === "number" ? timezoneOffsetMinutes : 0;
-    const sign = offsetMin <= 0 ? "+" : "-";
-    const absMin = Math.abs(offsetMin);
-    const offH = String(Math.floor(absMin / 60)).padStart(2, "0");
-    const offM = String(absMin % 60).padStart(2, "0");
-    const tzSuffix = `${sign}${offH}:${offM}`;
-
-    const scheduledStart = new Date(`${date}T${startTime}:00${tzSuffix}`).toISOString();
-    const scheduledFinish = new Date(`${date}T${endTime}:00${tzSuffix}`).toISOString();
+    // Build full timestamps using business timezone (IANA-based, DST-safe).
+    // Falls back to timezoneOffsetMinutes for backward compat if timezone lookup fails.
+    let scheduledStart: string;
+    let scheduledFinish: string;
+    try {
+      const tz = await getBusinessTimezone(ctx.businessId);
+      const stamps = buildShiftTimestamps(date, startTime, endTime, tz);
+      scheduledStart = stamps.scheduledStart;
+      scheduledFinish = stamps.scheduledFinish;
+    } catch {
+      // Fallback: use the legacy offset-based approach
+      const offsetMin = typeof timezoneOffsetMinutes === "number" ? timezoneOffsetMinutes : 0;
+      const sign = offsetMin <= 0 ? "+" : "-";
+      const absMin = Math.abs(offsetMin);
+      const offH = String(Math.floor(absMin / 60)).padStart(2, "0");
+      const offM = String(absMin % 60).padStart(2, "0");
+      const tzSuffix = `${sign}${offH}:${offM}`;
+      scheduledStart = new Date(`${date}T${startTime}:00${tzSuffix}`).toISOString();
+      scheduledFinish = new Date(`${date}T${endTime}:00${tzSuffix}`).toISOString();
+    }
 
     // 2. Check for overlapping shifts
     const { data: overlapping } = await adminClient
@@ -144,7 +154,7 @@ export async function POST(request: Request) {
       if (wl) locationId = wl.id;
     }
 
-    // 5. Create the shift
+    // 5. Create the shift with rate snapshots
     const { data: shift, error } = await adminClient
       .from("shifts")
       .insert({
@@ -157,6 +167,8 @@ export async function POST(request: Request) {
         location_id: locationId,
         instructions: instructions || null,
         require_odometer: typeof requireOdometer === "boolean" ? requireOdometer : null,
+        hourly_rate_snapshot: employee.hourly_rate,
+        mileage_rate_snapshot: employee.mileage_rate,
         status: "pending",
         created_by: ctx.userId,
       })
@@ -166,6 +178,22 @@ export async function POST(request: Request) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    // Fire-and-forget audit
+    shiftAudit(
+      "SHIFT_CREATED",
+      { businessId: ctx.businessId, userId: ctx.userId, role: ctx.role },
+      shift.id,
+      {
+        after: {
+          employee_id: employeeId,
+          date,
+          scheduled_start: scheduledStart,
+          scheduled_finish: scheduledFinish,
+          location: location || null,
+        },
+      }
+    );
 
     return NextResponse.json({ success: true, shift });
   } catch (err) {

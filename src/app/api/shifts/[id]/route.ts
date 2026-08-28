@@ -13,6 +13,10 @@ import {
   type ExistingShiftData,
   type AttendanceData,
 } from "@/lib/services/shiftValidation";
+import { canAcceptShift, canDeclineShift, type ShiftState } from "@/lib/services/shiftStateMachine";
+import { getWorkSession } from "@/lib/services/workSessionService";
+import { shiftAudit } from "@/lib/services/auditService";
+import { buildShiftTimestamps, getBusinessTimezone } from "@/lib/calculations/timezone";
 
 export async function GET(
   _request: Request,
@@ -50,13 +54,16 @@ export async function GET(
       .eq("id", shift.employee_id)
       .single();
 
-    // Get attendance status if exists
-    const { data: attendance } = await adminClient
-      .from("shift_attendance")
-      .select("attendance_status, actual_start, actual_finish")
-      .eq("shift_id", id)
-      .eq("employee_id", shift.employee_id)
-      .maybeSingle();
+    // Get work session status if exists
+    const workSession = await getWorkSession(adminClient, id);
+    // Map to the shape the frontend expects (backward compat)
+    const attendance = workSession
+      ? {
+          attendance_status: workSession.status,
+          actual_start: workSession.actual_start_at,
+          actual_finish: workSession.actual_finish_at,
+        }
+      : null;
 
     return NextResponse.json({ ...shift, employee, attendance });
   } catch (err) {
@@ -99,27 +106,55 @@ export async function PUT(
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
 
+      // Build state for guard functions
+      const ws = await getWorkSession(adminClient, id);
+      const shiftState: ShiftState = {
+        shiftStatus: shift.status,
+        workSessionStatus: ws?.status || null,
+        hasCheckedIn: false,
+      };
+
       if (action === "accept" || action === "accept_updated") {
-        if (shift.status !== "pending" && shift.status !== "updated_pending") {
-          return NextResponse.json({ error: "Only pending or updated shifts can be accepted." }, { status: 400 });
+        const guard = canAcceptShift(shiftState);
+        if (!guard.allowed) {
+          return NextResponse.json({ error: guard.reason }, { status: 400 });
         }
         const { error } = await adminClient
           .from("shifts")
           .update({ status: "accepted" })
           .eq("id", id);
         if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+        // Fire-and-forget audit
+        shiftAudit(
+          "SHIFT_ACCEPTED",
+          { businessId: ctx.businessId, userId: ctx.userId, role: "EMPLOYEE" },
+          id,
+          { before: { status: shift.status }, after: { status: "accepted" } }
+        );
+
         return NextResponse.json({ success: true, status: "accepted" });
       }
 
       if (action === "decline") {
-        if (shift.status !== "pending" && shift.status !== "updated_pending") {
-          return NextResponse.json({ error: "Only pending or updated shifts can be declined." }, { status: 400 });
+        const guard = canDeclineShift(shiftState);
+        if (!guard.allowed) {
+          return NextResponse.json({ error: guard.reason }, { status: 400 });
         }
         const { error } = await adminClient
           .from("shifts")
           .update({ status: "declined" })
           .eq("id", id);
         if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+        // Fire-and-forget audit
+        shiftAudit(
+          "SHIFT_DECLINED",
+          { businessId: ctx.businessId, userId: ctx.userId, role: "EMPLOYEE" },
+          id,
+          { before: { status: shift.status }, after: { status: "declined" } }
+        );
+
         return NextResponse.json({ success: true, status: "declined" });
       }
 
@@ -189,13 +224,9 @@ export async function DELETE(
       );
     }
 
-    const { data: attendance } = await adminClient
-      .from("shift_attendance")
-      .select("id")
-      .eq("shift_id", id)
-      .maybeSingle();
+    const ws = await getWorkSession(adminClient, id);
 
-    if (attendance) {
+    if (ws) {
       return NextResponse.json(
         { error: "This shift has already been started and cannot be deleted." },
         { status: 400 }
@@ -331,13 +362,11 @@ async function handlePreviewEdit(shiftId: string, body: any, shift: any, adminCl
     .eq("employee_id", shift.employee_id)
     .eq("date", date);
 
-  // Fetch attendance
-  const { data: attendance } = await adminClient
-    .from("shift_attendance")
-    .select("shift_id, attendance_status")
-    .eq("shift_id", shiftId)
-    .eq("employee_id", shift.employee_id)
-    .maybeSingle();
+  // Fetch work session status (replaces shift_attendance for preview)
+  const previewWs = await getWorkSession(adminClient, shiftId);
+  const attendance: AttendanceData | null = previewWs
+    ? { shift_id: shiftId, attendance_status: previewWs.status }
+    : null;
 
   const input: ShiftAssignmentInput = {
     employeeId: shift.employee_id,
@@ -354,7 +383,7 @@ async function handlePreviewEdit(shiftId: string, body: any, shift: any, adminCl
     employee as EmployeeData,
     availability as AvailabilityData | null,
     (existingShifts || []) as ExistingShiftData[],
-    attendance as AttendanceData | null,
+    attendance,
     shift.status
   );
 
@@ -431,12 +460,11 @@ async function handleUpdateShift(shiftId: string, body: any, shift: any, ctx: an
     .eq("employee_id", shift.employee_id)
     .eq("date", date);
 
-  const { data: attendance } = await adminClient
-    .from("shift_attendance")
-    .select("shift_id, attendance_status")
-    .eq("shift_id", shiftId)
-    .eq("employee_id", shift.employee_id)
-    .maybeSingle();
+  // Fetch work session status (replaces shift_attendance for update validation)
+  const updateWs = await getWorkSession(adminClient, shiftId);
+  const updateAttendance: AttendanceData | null = updateWs
+    ? { shift_id: shiftId, attendance_status: updateWs.status }
+    : null;
 
   const input: ShiftAssignmentInput = {
     employeeId: shift.employee_id,
@@ -453,7 +481,7 @@ async function handleUpdateShift(shiftId: string, body: any, shift: any, ctx: an
     employee as EmployeeData,
     availability as AvailabilityData | null,
     (existingShifts || []) as ExistingShiftData[],
-    attendance as AttendanceData | null,
+    updateAttendance,
     shift.status
   );
 
@@ -473,16 +501,25 @@ async function handleUpdateShift(shiftId: string, body: any, shift: any, ctx: an
     }, { status: 409 });
   }
 
-  // Build new timestamps with the client's timezone offset
-  const offsetMin = typeof timezoneOffsetMinutes === "number" ? timezoneOffsetMinutes : 0;
-  const sign = offsetMin <= 0 ? "+" : "-";
-  const absMin = Math.abs(offsetMin);
-  const offH = String(Math.floor(absMin / 60)).padStart(2, "0");
-  const offM = String(absMin % 60).padStart(2, "0");
-  const tzSuffix = `${sign}${offH}:${offM}`;
-
-  const newScheduledStart = new Date(`${date}T${startTime}:00${tzSuffix}`).toISOString();
-  const newScheduledFinish = new Date(`${date}T${endTime}:00${tzSuffix}`).toISOString();
+  // Build new timestamps using business timezone (IANA-based, DST-safe)
+  // Falls back to legacy offset approach if timezone lookup fails
+  let newScheduledStart: string;
+  let newScheduledFinish: string;
+  try {
+    const tz = await getBusinessTimezone(shift.business_id);
+    const stamps = buildShiftTimestamps(date, startTime, endTime, tz);
+    newScheduledStart = stamps.scheduledStart;
+    newScheduledFinish = stamps.scheduledFinish;
+  } catch {
+    const offsetMin = typeof timezoneOffsetMinutes === "number" ? timezoneOffsetMinutes : 0;
+    const sign = offsetMin <= 0 ? "+" : "-";
+    const absMin = Math.abs(offsetMin);
+    const offH = String(Math.floor(absMin / 60)).padStart(2, "0");
+    const offM = String(absMin % 60).padStart(2, "0");
+    const tzSuffix = `${sign}${offH}:${offM}`;
+    newScheduledStart = new Date(`${date}T${startTime}:00${tzSuffix}`).toISOString();
+    newScheduledFinish = new Date(`${date}T${endTime}:00${tzSuffix}`).toISOString();
+  }
 
   // Determine if reconfirmation needed (using timezone-adjusted ISO strings)
   const needsReconfirmation = shift.status === "accepted" && requiresEmployeeReconfirmation(

@@ -16,6 +16,8 @@ import { requireMember, handleTenantError } from "@/lib/services/tenantContext";
 import { validateDynamicQrToken } from "@/lib/services/dynamicQr";
 import { haversineDistanceMetres } from "@/lib/calculations/geo";
 import { notifyAdminException } from "@/lib/services/notificationService";
+import { canCheckIn, type ShiftState } from "@/lib/services/shiftStateMachine";
+import { getWorkSession } from "@/lib/services/workSessionService";
 
 export async function POST(request: Request) {
   try {
@@ -51,12 +53,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "This shift is not assigned to you." }, { status: 403 });
     }
 
-    // Must be accepted (or updated_pending — allow check-in)
-    if (!["accepted", "updated_pending"].includes(shift.status)) {
-      return NextResponse.json(
-        { error: "You can only check in for an accepted shift." },
-        { status: 400 }
-      );
+    // ── State machine guard ──
+    const ws = await getWorkSession(adminClient, shiftId);
+    const shiftState: ShiftState = {
+      shiftStatus: shift.status,
+      workSessionStatus: ws?.status || null,
+      hasCheckedIn: false, // will be set below after checking attendance_records
+    };
+
+    // Check existing attendance to see if already checked in
+    // (also used by the existing check below)
+
+    const guard = canCheckIn(shiftState);
+    if (!guard.allowed) {
+      return NextResponse.json({ error: guard.reason }, { status: 400 });
     }
 
     // ── 2. Check no existing attendance record ───────────────

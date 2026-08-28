@@ -2,9 +2,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireRole, handleTenantError } from "@/lib/services/tenantContext";
-import { calculateWorkedMinutes } from "@/lib/calculations/time";
-import { calculateMileage } from "@/lib/calculations/mileage";
-import { calculatePayment } from "@/lib/calculations/payment";
+import { recalculateForCorrection } from "@/lib/services/timesheetService";
 
 export async function POST(
   request: Request,
@@ -116,12 +114,12 @@ export async function POST(
       return NextResponse.json({ error: "Ending odometer cannot be lower than starting odometer." }, { status: 400 });
     }
 
-    // Recalculate using existing calculation functions
-    const workedMinutes = calculateWorkedMinutes(startDate, finishDate);
-    const distanceKm = calculateMileage(finalStartOdometer, finalFinishOdometer);
-    const payment = calculatePayment(
-      workedMinutes,
-      distanceKm,
+    // Recalculate via unified timesheet service (single calculation path)
+    const calc = recalculateForCorrection(
+      finalActualStart,
+      finalActualFinish,
+      finalStartOdometer,
+      finalFinishOdometer,
       timesheet.hourly_rate_snapshot,
       timesheet.mileage_rate_snapshot
     );
@@ -135,11 +133,11 @@ export async function POST(
     };
 
     const recalculatedValues = {
-      worked_minutes: workedMinutes,
-      distance_km: distanceKm,
-      wage_amount: payment.wageAmount,
-      mileage_amount: payment.mileageAmount,
-      total_amount: payment.totalAmount,
+      worked_minutes: calc.workedMinutes,
+      distance_km: calc.distanceKm,
+      wage_amount: calc.wageAmount,
+      mileage_amount: calc.mileageAmount,
+      total_amount: calc.totalAmount,
     };
 
     // Update the correction record
@@ -170,11 +168,11 @@ export async function POST(
         actual_finish: finalActualFinish,
         start_odometer: finalStartOdometer,
         finish_odometer: finalFinishOdometer,
-        worked_minutes: workedMinutes,
-        distance_km: distanceKm,
-        wage_amount: payment.wageAmount,
-        mileage_amount: payment.mileageAmount,
-        total_amount: payment.totalAmount,
+        worked_minutes: calc.workedMinutes,
+        distance_km: calc.distanceKm,
+        wage_amount: calc.wageAmount,
+        mileage_amount: calc.mileageAmount,
+        total_amount: calc.totalAmount,
         status: "correction_submitted",
       })
       .eq("id", timesheetId);

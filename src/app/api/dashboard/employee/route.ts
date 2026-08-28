@@ -26,12 +26,13 @@ export async function GET() {
       .order("date", { ascending: true })
       .limit(5);
 
-    // Active shift (working right now)
-    const { data: activeAttendance } = await adminClient
-      .from("shift_attendance")
+    // Active shift (working right now) — read from work_sessions
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: activeAttendance } = await (adminClient as any)
+      .from("work_sessions")
       .select("*, shifts!inner(id, date, scheduled_start, scheduled_finish, location)")
       .eq("employee_id", ctx.employeeId)
-      .eq("attendance_status", "working")
+      .eq("status", "working")
       .limit(1);
 
     // Recent timesheets

@@ -92,20 +92,23 @@ export async function POST(request: NextRequest) {
     }
 
     // Calculate totals from approved timesheets
+    // Use approved_total (admin may have adjusted) — fall back to total_amount
     let totalMinutes = 0;
     let totalMileage = 0;
     let totalWages = 0;
     let totalMileageAmount = 0;
+    let totalAmount = 0;
 
     for (const ts of timesheets) {
       totalMinutes += ts.worked_minutes;
       totalMileage += ts.distance_km;
       totalWages += ts.wage_amount;
       totalMileageAmount += ts.mileage_amount;
+      totalAmount += ts.approved_total ?? ts.total_amount;
     }
 
     const totalHours = Math.round((totalMinutes / 60) * 100) / 100;
-    const totalAmount = Math.round((totalWages + totalMileageAmount) * 100) / 100;
+    totalAmount = Math.round(totalAmount * 100) / 100;
 
     // Check that none of these timesheets are already linked to a payment
     const timesheetIds = timesheets.map((ts) => ts.id);

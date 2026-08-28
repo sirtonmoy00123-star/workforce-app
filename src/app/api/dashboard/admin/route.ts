@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
+import { utcToLocal, getBusinessTimezone } from "@/lib/calculations/timezone";
 
 export async function GET() {
   try {
@@ -25,9 +26,9 @@ export async function GET() {
       .eq("business_id", ctx.businessId)
       .eq("status", "pending");
 
-    // Today's shifts
-    const today = new Date();
-    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    // Today's shifts — use business timezone so "today" matches the local date
+    const tz = await getBusinessTimezone(ctx.businessId);
+    const todayStr = utcToLocal(new Date().toISOString(), tz).date;
     const { count: todayShifts } = await adminClient
       .from("shifts")
       .select("*", { count: "exact", head: true })

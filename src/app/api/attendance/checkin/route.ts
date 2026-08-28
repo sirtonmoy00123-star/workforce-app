@@ -53,22 +53,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "This shift is not assigned to you." }, { status: 403 });
     }
 
-    // ── State machine guard ──
-    const ws = await getWorkSession(adminClient, shiftId);
-    const shiftState: ShiftState = {
-      shiftStatus: shift.status,
-      workSessionStatus: ws?.status || null,
-      hasCheckedIn: false, // will be set below after checking attendance_records
-    };
-
-    // Check existing attendance to see if already checked in
-    // (also used by the existing check below)
-
-    const guard = canCheckIn(shiftState);
-    if (!guard.allowed) {
-      return NextResponse.json({ error: guard.reason }, { status: 400 });
-    }
-
     // ── 2. Check no existing attendance record ───────────────
     const { data: existing } = await adminClient
       .from("attendance_records")
@@ -77,8 +61,23 @@ export async function POST(request: Request) {
       .eq("business_id", ctx.businessId)
       .maybeSingle();
 
-    if (existing && existing.checkin_status !== "NOT_CHECKED_IN") {
+    const alreadyCheckedIn = !!existing && existing.checkin_status !== "NOT_CHECKED_IN";
+
+    if (alreadyCheckedIn) {
       return NextResponse.json({ error: "You have already checked in for this shift." }, { status: 409 });
+    }
+
+    // ── State machine guard ──
+    const ws = await getWorkSession(adminClient, shiftId);
+    const shiftState: ShiftState = {
+      shiftStatus: shift.status,
+      workSessionStatus: ws?.status || null,
+      hasCheckedIn: alreadyCheckedIn,
+    };
+
+    const guard = canCheckIn(shiftState);
+    if (!guard.allowed) {
+      return NextResponse.json({ error: guard.reason }, { status: 400 });
     }
 
     // ── 3. Load location + attendance settings ───────────────

@@ -51,6 +51,8 @@ export async function PUT(
 
     const adminClient = createAdminClient();
 
+    // Build update payload — only include fields that were actually sent
+    // to avoid overwriting with undefined/null
     const { data: employee, error } = await adminClient
       .from("employees")
       .update({
@@ -58,10 +60,10 @@ export async function PUT(
         phone: phone || null,
         hourly_rate: parseFloat(hourlyRate) || 0,
         mileage_rate: parseFloat(mileageRate) || 0,
-        employment_type: employmentType || undefined,
-        open_to_extra_shifts: openToExtraShifts !== undefined ? !!openToExtraShifts : undefined,
-        odometer_tracking_enabled: odometerTrackingEnabled !== undefined ? !!odometerTrackingEnabled : undefined,
-        task_proof_enabled: taskProofEnabled !== undefined ? !!taskProofEnabled : undefined,
+        ...(employmentType !== undefined && { employment_type: employmentType }),
+        ...(openToExtraShifts !== undefined && { open_to_extra_shifts: !!openToExtraShifts }),
+        ...(odometerTrackingEnabled !== undefined && { odometer_tracking_enabled: !!odometerTrackingEnabled }),
+        ...(taskProofEnabled !== undefined && { task_proof_enabled: !!taskProofEnabled }),
       })
       .eq("id", id)
       .eq("business_id", ctx.businessId)
@@ -122,6 +124,12 @@ export async function POST(
           .from("employees")
           .update({ employment_status: "inactive" })
           .eq("id", id);
+        // Keep business_members in sync so tenantContext rejects early
+        await adminClient
+          .from("business_members")
+          .update({ status: "INACTIVE" })
+          .eq("user_id", userRecord.id)
+          .eq("business_id", ctx.businessId);
         return NextResponse.json({ success: true, message: "Employee disabled." });
       }
 
@@ -134,6 +142,12 @@ export async function POST(
           .from("employees")
           .update({ employment_status: "active" })
           .eq("id", id);
+        // Re-activate business_members
+        await adminClient
+          .from("business_members")
+          .update({ status: "ACTIVE" })
+          .eq("user_id", userRecord.id)
+          .eq("business_id", ctx.businessId);
         return NextResponse.json({ success: true, message: "Employee reactivated." });
       }
 

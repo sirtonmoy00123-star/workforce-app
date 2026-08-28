@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireRole, handleTenantError } from "@/lib/services/tenantContext";
+import { utcToLocal, getBusinessTimezone } from "@/lib/calculations/timezone";
 
 export async function GET() {
   try {
@@ -14,8 +15,9 @@ export async function GET() {
     const adminClient = createAdminClient();
 
     // Upcoming shifts (pending or accepted, future dates)
-    const today = new Date();
-    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    // Use business timezone so "today" matches the employee's local date
+    const tz = await getBusinessTimezone(ctx.businessId);
+    const todayStr = utcToLocal(new Date().toISOString(), tz).date;
 
     const { data: upcomingShifts } = await adminClient
       .from("shifts")

@@ -3,6 +3,8 @@ import { minutesToDecimalHours } from "./time";
 export interface PaymentBreakdown {
   wageAmount: number;
   mileageAmount: number;
+  totalAmount: number;
+  /** @deprecated Use totalAmount instead */
   estimatedTotal: number;
 }
 
@@ -20,10 +22,12 @@ export function calculatePayment(
   const hours = minutesToDecimalHours(workedMinutes);
   const wageAmount = round2(hours * hourlyRateSnapshot);
   const mileageAmount = round2(distanceKm * mileageRateSnapshot);
+  const totalAmount = round2(wageAmount + mileageAmount);
   return {
     wageAmount,
     mileageAmount,
-    estimatedTotal: round2(wageAmount + mileageAmount),
+    totalAmount,
+    estimatedTotal: totalAmount, // deprecated alias
   };
 }
 

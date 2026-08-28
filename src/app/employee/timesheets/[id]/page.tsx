@@ -20,7 +20,7 @@ interface TimesheetDetail {
   mileage_rate_snapshot: number;
   wage_amount: number;
   mileage_amount: number;
-  estimated_total: number;
+  total_amount: number;
   approved_total: number | null;
   status: string;
 }
@@ -110,7 +110,7 @@ export default function EmployeeTimesheetCorrectionPage() {
     distance_km: number;
     wage_amount: number;
     mileage_amount: number;
-    estimated_total: number;
+    total_amount: number;
   } | null>(null);
 
   useEffect(() => {
@@ -195,9 +195,9 @@ export default function EmployeeTimesheetCorrectionPage() {
     const hours = workedMinutes / 60;
     const wageAmount = Math.round(hours * timesheet!.hourly_rate_snapshot * 100) / 100;
     const mileageAmount = Math.round(distanceKm * timesheet!.mileage_rate_snapshot * 100) / 100;
-    const estimatedTotal = Math.round((wageAmount + mileageAmount) * 100) / 100;
+    const totalAmount = Math.round((wageAmount + mileageAmount) * 100) / 100;
 
-    setPreview({ worked_minutes: workedMinutes, distance_km: distanceKm, wage_amount: wageAmount, mileage_amount: mileageAmount, estimated_total: estimatedTotal });
+    setPreview({ worked_minutes: workedMinutes, distance_km: distanceKm, wage_amount: wageAmount, mileage_amount: mileageAmount, total_amount: totalAmount });
     setShowReview(true);
   }
 
@@ -381,11 +381,11 @@ export default function EmployeeTimesheetCorrectionPage() {
             <hr className="border-blue-200" />
             <div className="flex justify-between text-gray-500">
               <span>Previous Estimated Pay</span>
-              <span>${timesheet.estimated_total.toFixed(2)}</span>
+              <span>${timesheet.total_amount.toFixed(2)}</span>
             </div>
             <div className="flex justify-between text-blue-800 font-bold">
               <span>New Estimated Pay</span>
-              <span>${preview.estimated_total.toFixed(2)}</span>
+              <span>${preview.total_amount.toFixed(2)}</span>
             </div>
           </div>
 
@@ -585,7 +585,7 @@ export default function EmployeeTimesheetCorrectionPage() {
             <div className="flex justify-between font-bold">
               <span>{timesheet.status === "approved" ? "Approved Total" : "Estimated Total"}</span>
               <span className="text-green-600">
-                ${(timesheet.approved_total ?? timesheet.estimated_total).toFixed(2)}
+                ${(timesheet.approved_total ?? timesheet.total_amount).toFixed(2)}
               </span>
             </div>
           </div>

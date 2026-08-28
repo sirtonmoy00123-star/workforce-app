@@ -12,7 +12,7 @@ interface Timesheet {
   actual_finish: string;
   worked_minutes: number;
   distance_km: number;
-  estimated_total: number;
+  total_amount: number;
   approved_total: number | null;
   status: string;
   created_at: string;
@@ -110,7 +110,7 @@ export default function AdminTimesheetsPage() {
                   {formatDate(ts.actual_start)} · {formatDuration(ts.worked_minutes)} · {ts.distance_km} km
                 </div>
                 <div className="font-medium text-gray-900">
-                  ${(ts.approved_total ?? ts.estimated_total).toFixed(2)}
+                  ${(ts.approved_total ?? ts.total_amount).toFixed(2)}
                 </div>
               </div>
             </Link>

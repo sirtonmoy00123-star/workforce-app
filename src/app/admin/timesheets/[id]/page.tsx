@@ -49,7 +49,7 @@ interface TimesheetDetail {
   mileage_rate_snapshot: number;
   wage_amount: number;
   mileage_amount: number;
-  estimated_total: number;
+  total_amount: number;
   approved_total: number | null;
   status: string;
   created_at: string;
@@ -388,12 +388,12 @@ export default function AdminTimesheetDetailPage() {
                       changed={latestSubmitted.original_values.distance_km !== latestSubmitted.recalculated_values?.distance_km}
                     />
                     <ComparisonRow
-                      label="Estimated pay"
-                      before={`$${Number(latestSubmitted.original_values.estimated_total).toFixed(2)}`}
+                      label="Total pay"
+                      before={`$${Number(latestSubmitted.original_values.total_amount ?? latestSubmitted.original_values.estimated_total).toFixed(2)}`}
                       after={latestSubmitted.recalculated_values
-                        ? `$${Number(latestSubmitted.recalculated_values.estimated_total).toFixed(2)}`
-                        : `$${Number(latestSubmitted.original_values.estimated_total).toFixed(2)}`}
-                      changed={latestSubmitted.original_values.estimated_total !== latestSubmitted.recalculated_values?.estimated_total}
+                        ? `$${Number(latestSubmitted.recalculated_values.total_amount ?? latestSubmitted.recalculated_values.estimated_total).toFixed(2)}`
+                        : `$${Number(latestSubmitted.original_values.total_amount ?? latestSubmitted.original_values.estimated_total).toFixed(2)}`}
+                      changed={(latestSubmitted.original_values.total_amount ?? latestSubmitted.original_values.estimated_total) !== (latestSubmitted.recalculated_values?.total_amount ?? latestSubmitted.recalculated_values?.estimated_total)}
                     />
                   </tbody>
                 </table>
@@ -758,7 +758,7 @@ export default function AdminTimesheetDetailPage() {
               <hr className="my-1" />
               <div className="flex justify-between font-bold">
                 <span>Estimated Total</span>
-                <span className="text-green-600">${timesheet.estimated_total.toFixed(2)}</span>
+                <span className="text-green-600">${timesheet.total_amount.toFixed(2)}</span>
               </div>
               {timesheet.approved_total !== null && (
                 <div className="flex justify-between font-bold">

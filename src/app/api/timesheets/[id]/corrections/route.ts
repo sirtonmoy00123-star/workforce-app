@@ -120,7 +120,7 @@ export async function POST(
       distance_km: timesheet.distance_km,
       wage_amount: timesheet.wage_amount,
       mileage_amount: timesheet.mileage_amount,
-      estimated_total: timesheet.estimated_total,
+      total_amount: timesheet.total_amount,
       start_photo: startOdometerSub?.photo_path || null,
       finish_photo: finishOdometerSub?.photo_path || null,
     };

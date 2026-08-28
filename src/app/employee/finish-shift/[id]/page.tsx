@@ -35,7 +35,7 @@ interface TimesheetResult {
   distance_km: number;
   wage_amount: number;
   mileage_amount: number;
-  estimated_total: number;
+  total_amount: number;
 }
 
 export default function FinishShiftPage() {
@@ -295,7 +295,7 @@ export default function FinishShiftPage() {
               <hr className="my-2" />
               <div className="flex justify-between text-sm font-bold">
                 <span>Estimated Total</span>
-                <span className="text-green-600">${timesheet.estimated_total.toFixed(2)}</span>
+                <span className="text-green-600">${timesheet.total_amount.toFixed(2)}</span>
               </div>
             </div>
           )}

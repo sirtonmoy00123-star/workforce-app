@@ -249,7 +249,7 @@ export async function POST(
         mileage_rate_snapshot: mileageRateSnapshot,
         wage_amount: payment.wageAmount,
         mileage_amount: payment.mileageAmount,
-        estimated_total: payment.estimatedTotal,
+        total_amount: payment.totalAmount,
         status: "submitted",
       })
       .select()
@@ -276,7 +276,7 @@ export async function POST(
         distance_km: distanceKm,
         wage_amount: payment.wageAmount,
         mileage_amount: payment.mileageAmount,
-        estimated_total: payment.estimatedTotal,
+        total_amount: payment.totalAmount,
       },
     });
   } catch (err) {

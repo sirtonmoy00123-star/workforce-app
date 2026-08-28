@@ -208,6 +208,70 @@ export type Database = {
         };
         Relationships: [];
       };
+      work_sessions: {
+        Row: {
+          id: string;
+          shift_id: string;
+          employee_id: string;
+          business_id: string;
+          actual_start_at: string | null;
+          actual_finish_at: string | null;
+          payable_start_at: string | null;
+          payable_finish_at: string | null;
+          actual_worked_minutes: number | null;
+          payable_worked_minutes: number | null;
+          paid_break_minutes: number;
+          unpaid_break_minutes: number;
+          start_source: string | null;
+          finish_source: string | null;
+          requires_review: boolean;
+          status: "pending" | "working" | "completed" | "review_required" | "approved";
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          shift_id: string;
+          employee_id: string;
+          business_id: string;
+          actual_start_at?: string | null;
+          actual_finish_at?: string | null;
+          payable_start_at?: string | null;
+          payable_finish_at?: string | null;
+          actual_worked_minutes?: number | null;
+          payable_worked_minutes?: number | null;
+          paid_break_minutes?: number;
+          unpaid_break_minutes?: number;
+          start_source?: string | null;
+          finish_source?: string | null;
+          requires_review?: boolean;
+          status?: "pending" | "working" | "completed" | "review_required" | "approved";
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          shift_id?: string;
+          employee_id?: string;
+          business_id?: string;
+          actual_start_at?: string | null;
+          actual_finish_at?: string | null;
+          payable_start_at?: string | null;
+          payable_finish_at?: string | null;
+          actual_worked_minutes?: number | null;
+          payable_worked_minutes?: number | null;
+          paid_break_minutes?: number;
+          unpaid_break_minutes?: number;
+          start_source?: string | null;
+          finish_source?: string | null;
+          requires_review?: boolean;
+          status?: "pending" | "working" | "completed" | "review_required" | "approved";
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      /** @deprecated Compatibility view — use work_sessions instead. Will be removed in Phase 8. */
       shift_attendance: {
         Row: {
           id: string;
@@ -216,7 +280,7 @@ export type Database = {
           business_id: string;
           actual_start: string | null;
           actual_finish: string | null;
-          attendance_status: "pending" | "working" | "completed";
+          attendance_status: "pending" | "working" | "completed" | "review_required" | "approved";
           created_at: string;
           updated_at: string;
         };
@@ -227,7 +291,7 @@ export type Database = {
           business_id: string;
           actual_start?: string | null;
           actual_finish?: string | null;
-          attendance_status?: "pending" | "working" | "completed";
+          attendance_status?: "pending" | "working" | "completed" | "review_required" | "approved";
           created_at?: string;
           updated_at?: string;
         };
@@ -238,7 +302,7 @@ export type Database = {
           business_id?: string;
           actual_start?: string | null;
           actual_finish?: string | null;
-          attendance_status?: "pending" | "working" | "completed";
+          attendance_status?: "pending" | "working" | "completed" | "review_required" | "approved";
           created_at?: string;
           updated_at?: string;
         };
@@ -298,7 +362,7 @@ export type Database = {
           mileage_rate_snapshot: number;
           wage_amount: number;
           mileage_amount: number;
-          estimated_total: number;
+          total_amount: number;
           approved_total: number | null;
           status: "submitted" | "approved" | "needs_correction" | "correction_required" | "correction_submitted";
           approved_by: string | null;
@@ -322,7 +386,7 @@ export type Database = {
           mileage_rate_snapshot: number;
           wage_amount: number;
           mileage_amount: number;
-          estimated_total: number;
+          total_amount: number;
           approved_total?: number | null;
           status?: "submitted" | "approved" | "needs_correction" | "correction_required" | "correction_submitted";
           approved_by?: string | null;
@@ -346,7 +410,7 @@ export type Database = {
           mileage_rate_snapshot?: number;
           wage_amount?: number;
           mileage_amount?: number;
-          estimated_total?: number;
+          total_amount?: number;
           approved_total?: number | null;
           status?: "submitted" | "approved" | "needs_correction" | "correction_required" | "correction_submitted";
           approved_by?: string | null;

@@ -139,7 +139,7 @@ export async function POST(
       distance_km: distanceKm,
       wage_amount: payment.wageAmount,
       mileage_amount: payment.mileageAmount,
-      estimated_total: payment.estimatedTotal,
+      total_amount: payment.totalAmount,
     };
 
     // Update the correction record
@@ -174,7 +174,7 @@ export async function POST(
         distance_km: distanceKm,
         wage_amount: payment.wageAmount,
         mileage_amount: payment.mileageAmount,
-        estimated_total: payment.estimatedTotal,
+        total_amount: payment.totalAmount,
         status: "correction_submitted",
       })
       .eq("id", timesheetId);

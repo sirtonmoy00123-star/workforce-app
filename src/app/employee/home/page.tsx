@@ -17,7 +17,7 @@ interface RecentTimesheet {
   id: string;
   actual_start: string;
   worked_minutes: number;
-  estimated_total: number;
+  total_amount: number;
   status: string;
 }
 
@@ -205,7 +205,7 @@ export default function EmployeeHomePage() {
                   <div className="text-xs text-gray-500">{formatDuration(ts.worked_minutes)}</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-sm font-bold text-gray-900">${ts.estimated_total.toFixed(2)}</div>
+                  <div className="text-sm font-bold text-gray-900">${ts.total_amount.toFixed(2)}</div>
                   <StatusBadge status={ts.status} />
                 </div>
               </div>

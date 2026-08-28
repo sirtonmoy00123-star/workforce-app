@@ -10,7 +10,7 @@ interface Timesheet {
   actual_finish: string;
   worked_minutes: number;
   distance_km: number;
-  estimated_total: number;
+  total_amount: number;
   approved_total: number | null;
   status: string;
 }
@@ -99,7 +99,7 @@ export default function EmployeeTimesheetsPage() {
                     {ts.status === "approved" ? "Approved Total" : "Estimated Total"}
                   </span>
                   <span className="font-bold text-gray-900">
-                    ${(ts.approved_total ?? ts.estimated_total).toFixed(2)}
+                    ${(ts.approved_total ?? ts.total_amount).toFixed(2)}
                   </span>
                 </div>
               </Link>

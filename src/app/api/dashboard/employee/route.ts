@@ -37,7 +37,7 @@ export async function GET() {
     // Recent timesheets
     const { data: recentTimesheets } = await adminClient
       .from("timesheets")
-      .select("id, actual_start, worked_minutes, estimated_total, status")
+      .select("id, actual_start, worked_minutes, total_amount, status")
       .eq("employee_id", ctx.employeeId)
       .order("created_at", { ascending: false })
       .limit(3);

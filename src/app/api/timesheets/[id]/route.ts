@@ -134,7 +134,7 @@ export async function PUT(
     }
 
     if (action === "approve") {
-      const finalTotal = approved_total !== undefined ? approved_total : timesheet.estimated_total;
+      const finalTotal = approved_total !== undefined ? approved_total : timesheet.total_amount;
 
       const { error } = await adminClient
         .from("timesheets")

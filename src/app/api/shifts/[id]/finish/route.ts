@@ -240,13 +240,15 @@ export async function POST(
           total_amount: result.totalAmount,
         },
       });
-    } catch (finishErr) {
-      console.error("Finish work session error:", finishErr);
+    } catch (finishErr: unknown) {
+      const errMsg = finishErr instanceof Error ? finishErr.message : String(finishErr);
+      console.error("Finish work session error:", errMsg, finishErr);
       return NextResponse.json({
         success: false,
         actual_finish: serverNow,
         message: "Failed to finish shift. Please try again or contact admin.",
         timesheet_error: true,
+        debug_error: errMsg,
       }, { status: 500 });
     }
   } catch (err) {

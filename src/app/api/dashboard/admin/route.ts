@@ -29,11 +29,37 @@ export async function GET() {
     // Today's shifts — use business timezone so "today" matches the local date
     const tz = await getBusinessTimezone(ctx.businessId);
     const todayStr = utcToLocal(new Date().toISOString(), tz).date;
-    const { count: todayShifts } = await adminClient
+    const { data: todayShiftsData } = await adminClient
       .from("shifts")
-      .select("*", { count: "exact", head: true })
+      .select("id, status")
       .eq("business_id", ctx.businessId)
       .eq("date", todayStr);
+
+    const todayShifts = todayShiftsData?.length || 0;
+    const todayAssigned = todayShiftsData?.filter((s) => s.status === "accepted" || s.status === "pending" || s.status === "updated_pending").length || 0;
+    const todayInProgress = todayShiftsData?.filter((s) => s.status === "accepted").length || 0;
+    const todayCompleted = todayShiftsData?.filter((s) => s.status === "completed").length || 0;
+    const todayNoShows = todayShiftsData?.filter((s) => s.status === "declined" || s.status === "cancelled").length || 0;
+
+    // Site issues count (attendance exceptions that are unresolved)
+    const { count: siteIssues } = await adminClient
+      .from("attendance_exceptions")
+      .select("*", { count: "exact", head: true })
+      .eq("business_id", ctx.businessId)
+      .eq("status", "PENDING");
+
+    // Task proof pending count
+    let taskProofPending = 0;
+    try {
+      const { count } = await adminClient
+        .from("task_proof_submissions")
+        .select("*", { count: "exact", head: true })
+        .eq("business_id", ctx.businessId)
+        .eq("status", "SUBMITTED");
+      taskProofPending = count || 0;
+    } catch {
+      // table may not have business_id or may not exist
+    }
 
     // Submitted timesheets (awaiting review)
     let submittedTimesheets = 0;
@@ -99,11 +125,17 @@ export async function GET() {
       totalEmployees,
       activeEmployees,
       pendingShifts: pendingShifts || 0,
-      todayShifts: todayShifts || 0,
+      todayShifts,
+      todayAssigned,
+      todayInProgress,
+      todayCompleted,
+      todayNoShows,
       submittedTimesheets,
       unpaidPayments,
       unpaidAmount,
       attendanceReview: attendanceReview || 0,
+      siteIssues: siteIssues || 0,
+      taskProofPending,
       actionRequired: actionItems || [],
       unreadNotifications: unreadNotifications || 0,
     });

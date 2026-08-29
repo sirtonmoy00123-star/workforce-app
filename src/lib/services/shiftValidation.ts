@@ -1,6 +1,11 @@
 /**
  * Shared shift validation — used by both Create Shift and Edit Shift.
  * Single source of truth for all shift business rules.
+ *
+ * IMPORTANT: All time comparisons use pre-computed UTC ISO timestamps
+ * (`scheduledStartISO` / `scheduledFinishISO`) derived from the business
+ * timezone via `buildShiftTimestamps()`. This ensures correct validation
+ * for overnight shifts and avoids timezone-unsafe `new Date(date+time)`.
  */
 
 export interface ValidationResult {
@@ -23,6 +28,10 @@ export interface ShiftAssignmentInput {
   location?: string | null;
   instructions?: string | null;
   excludeShiftId?: string;  // when editing, exclude the current shift from overlap check
+  /** Pre-computed UTC ISO start timestamp from buildShiftTimestamps(). Required for timezone-safe validation. */
+  scheduledStartISO?: string;
+  /** Pre-computed UTC ISO finish timestamp from buildShiftTimestamps(). Required for timezone-safe validation. */
+  scheduledFinishISO?: string;
 }
 
 export interface EmployeeData {
@@ -67,13 +76,27 @@ export function validateShiftAssignment(
   const errors: ValidationIssue[] = [];
   const warnings: ValidationIssue[] = [];
 
-  // 1. Validate time logic
-  if (input.endTime <= input.startTime) {
-    errors.push({
-      type: "invalid_time",
-      message: "Finish time must be after start time.",
-      details: `Start: ${input.startTime}, Finish: ${input.endTime}`,
-    });
+  // 1. Validate time logic using UTC timestamps when available
+  // Overnight shifts (e.g. 22:00–06:00) have endTime <= startTime as clock strings
+  // but scheduledFinishISO > scheduledStartISO because finish is the next day.
+  if (input.scheduledStartISO && input.scheduledFinishISO) {
+    // Timezone-safe: compare actual UTC timestamps
+    if (input.scheduledFinishISO <= input.scheduledStartISO) {
+      errors.push({
+        type: "invalid_time",
+        message: "Finish time must be after start time.",
+        details: `Start: ${input.startTime}, Finish: ${input.endTime}`,
+      });
+    }
+  } else {
+    // Legacy fallback: only flag if times are identical (don't block overnight)
+    if (input.endTime === input.startTime) {
+      errors.push({
+        type: "invalid_time",
+        message: "Finish time cannot be the same as start time.",
+        details: `Start: ${input.startTime}, Finish: ${input.endTime}`,
+      });
+    }
   }
 
   // 2. Check if shift has already started (edit only)
@@ -113,12 +136,14 @@ export function validateShiftAssignment(
     const availStart = availability.start_time.substring(0, 5);
     const availEnd = availability.end_time.substring(0, 5);
 
-    if (input.startTime < availStart || input.endTime > availEnd) {
+    // For overnight shifts, availability check applies to the start time only
+    const isOvernight = input.endTime <= input.startTime;
+    if (input.startTime < availStart || (!isOvernight && input.endTime > availEnd)) {
       const parts: string[] = [];
       if (input.startTime < availStart) {
         parts.push(`availability starts at ${availStart}`);
       }
-      if (input.endTime > availEnd) {
+      if (!isOvernight && input.endTime > availEnd) {
         parts.push(`availability ends at ${availEnd}`);
       }
       warnings.push({
@@ -129,14 +154,14 @@ export function validateShiftAssignment(
     }
   }
 
-  // 6. Check overlapping shifts (warning with override)
-  const shiftStart = new Date(`${input.date}T${input.startTime}:00`).toISOString();
-  const shiftEnd = new Date(`${input.date}T${input.endTime}:00`).toISOString();
+  // 6. Check overlapping shifts using UTC timestamps (timezone-safe)
+  // Use pre-computed ISO strings when available, otherwise fall back to clock strings
+  const shiftStart = input.scheduledStartISO || `${input.date}T${input.startTime}:00Z`;
+  const shiftEnd = input.scheduledFinishISO || `${input.date}T${input.endTime}:00Z`;
 
   const overlaps = existingShifts.filter(
     (s) =>
       s.employee_id === input.employeeId &&
-      s.date === input.date &&
       s.id !== input.excludeShiftId &&
       !["cancelled", "declined"].includes(s.status) &&
       s.scheduled_start < shiftEnd &&
@@ -194,22 +219,22 @@ export function requiresEmployeeReconfirmation(
   // Date changed
   if (original.date !== updated.date) return true;
 
-  // Start time changed
+  // Start time changed — always require scheduledStartISO for reliable comparison
   if (updated.scheduledStartISO) {
-    // Use timezone-adjusted ISO strings for accurate comparison
     if (original.scheduled_start !== updated.scheduledStartISO) return true;
   } else {
-    // Fallback: build ISO without timezone (may have false positives on Vercel UTC)
-    const newStartISO = new Date(`${updated.date}T${updated.startTime}:00`).toISOString();
-    if (original.scheduled_start !== newStartISO) return true;
+    // Fallback: compare clock strings extracted from the original ISO timestamp
+    // This avoids timezone-unsafe `new Date(date+time)` on Vercel (UTC server)
+    const origStartTime = original.scheduled_start.slice(11, 16); // HH:MM from ISO
+    if (origStartTime !== updated.startTime) return true;
   }
 
   // Finish time changed
   if (updated.scheduledFinishISO) {
     if (original.scheduled_finish !== updated.scheduledFinishISO) return true;
   } else {
-    const newEndISO = new Date(`${updated.date}T${updated.endTime}:00`).toISOString();
-    if (original.scheduled_finish !== newEndISO) return true;
+    const origEndTime = original.scheduled_finish.slice(11, 16);
+    if (origEndTime !== updated.endTime) return true;
   }
 
   // Location changed (normalize nulls and empty strings)

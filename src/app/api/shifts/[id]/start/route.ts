@@ -6,6 +6,8 @@ import { requireRole, handleTenantError } from "@/lib/services/tenantContext";
 import { canStartWork, type ShiftState } from "@/lib/services/shiftStateMachine";
 import { startWorkSession } from "@/lib/services/workSessionService";
 import { workSessionAudit } from "@/lib/services/auditService";
+import { validateImageFile, validateImageMagicBytes } from "@/lib/validation/workSession.schema";
+import { apiError, ErrorCode } from "@/lib/validation/errors";
 
 export async function POST(
   request: Request,
@@ -106,17 +108,30 @@ export async function POST(
     if (odometerEnabled) {
       // Odometer is required
       if (!photo) {
-        return NextResponse.json({ error: "Odometer photo is required." }, { status: 400 });
+        return apiError(ErrorCode.ODOMETER_REQUIRED, "Odometer photo is required.");
       }
       if (isNaN(odometerReading) || odometerReading < 0) {
-        return NextResponse.json({ error: "Valid odometer reading is required." }, { status: 400 });
+        return apiError(ErrorCode.INVALID_INPUT, "Valid odometer reading is required.");
+      }
+
+      // Validate file: size, MIME type, magic bytes
+      const fileErr = validateImageFile(photo);
+      if (fileErr) {
+        return apiError(ErrorCode.INVALID_FILE, fileErr);
       }
 
       // Upload photo to Supabase Storage (odometer-photos bucket)
-      const fileExt = photo.name.split(".").pop() || "jpg";
-      const fileName = `${ctx.employeeId}/${shiftId}/start_${Date.now()}.${fileExt}`;
+      // Use generated filename (never trust client filename)
       const arrayBuffer = await photo.arrayBuffer();
       const fileBuffer = new Uint8Array(arrayBuffer);
+
+      // Validate magic bytes (actual content, not just MIME header)
+      if (!validateImageMagicBytes(fileBuffer)) {
+        return apiError(ErrorCode.INVALID_FILE, "File content does not match a valid image format.");
+      }
+
+      const ext = photo.type === "image/png" ? "png" : photo.type === "image/webp" ? "webp" : "jpg";
+      const fileName = `${ctx.employeeId}/${shiftId}/start_${Date.now()}.${ext}`;
 
       const { error: uploadError } = await adminClient.storage
         .from("odometer-photos")

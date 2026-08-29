@@ -131,7 +131,10 @@ export function buildConflictReport(
   startTime: string,
   endTime: string,
   availabilities: AvailabilityRecord[],
-  existingShifts: ExistingShift[]
+  existingShifts: ExistingShift[],
+  /** Optional timezone-safe timestamp builder. When provided, uses business timezone
+   *  instead of unsafe `new Date(date+time)`. Pass `buildShiftTimestamps` bound to the business timezone. */
+  buildTimestampsFn?: (date: string, start: string, end: string) => { scheduledStart: string; scheduledFinish: string }
 ): RecurringPreview {
   const perDateStatuses: EmployeeDateStatus[][] = [];
 
@@ -139,9 +142,17 @@ export function buildConflictReport(
     const dateObj = new Date(date + "T00:00:00");
     const dayOfWeek = dateObj.getDay(); // 0=Sun … 6=Sat
 
-    // Build timestamps for overlap comparison
-    const shiftStart = new Date(`${date}T${startTime}:00`).toISOString();
-    const shiftEnd = new Date(`${date}T${endTime}:00`).toISOString();
+    // Build timestamps for overlap comparison — use timezone-safe builder when available
+    let shiftStart: string;
+    let shiftEnd: string;
+    if (buildTimestampsFn) {
+      const stamps = buildTimestampsFn(date, startTime, endTime);
+      shiftStart = stamps.scheduledStart;
+      shiftEnd = stamps.scheduledFinish;
+    } else {
+      shiftStart = new Date(`${date}T${startTime}:00`).toISOString();
+      shiftEnd = new Date(`${date}T${endTime}:00`).toISOString();
+    }
 
     const dateStatuses: EmployeeDateStatus[] = [];
 

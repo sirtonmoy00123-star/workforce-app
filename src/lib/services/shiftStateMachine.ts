@@ -194,6 +194,49 @@ export function canGenerateTimesheet(state: ShiftState): TransitionResult {
   };
 }
 
+/** Can admin publish/assign this shift? (Only from DRAFT/PENDING states) */
+export function canPublishShift(state: ShiftState): TransitionResult {
+  const phase = resolvePhase(state);
+  if (phase === "PENDING") {
+    return { allowed: true };
+  }
+  return {
+    allowed: false,
+    reason: `Cannot publish shift in current state (${phase}).`,
+  };
+}
+
+/** Can admin cancel this shift? */
+export function canCancelShift(state: ShiftState): TransitionResult {
+  const phase = resolvePhase(state);
+  if (phase === "COMPLETED") {
+    return { allowed: false, reason: "Completed shifts cannot be cancelled." };
+  }
+  if (phase === "CANCELLED") {
+    return { allowed: false, reason: "This shift is already cancelled." };
+  }
+  if (phase === "WORKING") {
+    return { allowed: false, reason: "Cannot cancel a shift that is currently in progress." };
+  }
+  return { allowed: true };
+}
+
+/**
+ * Assert a transition is valid, throwing an error with a structured code if not.
+ * Use this in API routes for clean error handling.
+ */
+export function assertShiftTransition(
+  guardResult: TransitionResult,
+  errorCode: string
+): void {
+  if (!guardResult.allowed) {
+    const err = new Error(guardResult.reason || "Transition not allowed.");
+    (err as any).code = errorCode;
+    (err as any).statusCode = 400;
+    throw err;
+  }
+}
+
 // ────────────────────────────────────────────────────────────
 // Valid transitions table (for documentation and validation)
 // ────────────────────────────────────────────────────────────

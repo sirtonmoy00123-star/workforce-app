@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
+import { buildShiftTimestamps, getBusinessTimezone } from "@/lib/calculations/timezone";
 
 interface CopyPreviewShift {
   originalShiftId: string;
@@ -131,9 +132,18 @@ export async function POST(request: Request) {
         continue;
       }
 
-      // Check overlap
-      const newStartISO = new Date(`${newDateStr}T${startTimeStr}:00`).toISOString();
-      const newEndISO = new Date(`${newDateStr}T${endTimeStr}:00`).toISOString();
+      // Check overlap — use business timezone for proper UTC conversion
+      let newStartISO: string;
+      let newEndISO: string;
+      try {
+        const tz = await getBusinessTimezone(ctx.businessId);
+        const stamps = buildShiftTimestamps(newDateStr, startTimeStr, endTimeStr, tz);
+        newStartISO = stamps.scheduledStart;
+        newEndISO = stamps.scheduledFinish;
+      } catch {
+        newStartISO = new Date(`${newDateStr}T${startTimeStr}:00`).toISOString();
+        newEndISO = new Date(`${newDateStr}T${endTimeStr}:00`).toISOString();
+      }
 
       const overlap = targetShifts?.find(
         (ts) =>
@@ -234,19 +244,37 @@ export async function POST(request: Request) {
       // body.selectedShiftIds: string[] — which shifts to actually create (only ready ones by default)
       const selectedIds: string[] = body.selectedShiftIds || preview.filter((p) => p.status === "ready").map((p) => p.originalShiftId);
 
+      // Build shifts with timezone-safe timestamps
+      let copyTz: string | null = null;
+      try {
+        copyTz = await getBusinessTimezone(ctx.businessId);
+      } catch { /* fallback below */ }
+
       const shiftsToInsert = preview
         .filter((p) => selectedIds.includes(p.originalShiftId) && (p.status === "ready" || body.forceOverride))
-        .map((p) => ({
-          business_id: ctx.businessId,
-          employee_id: p.employeeId,
-          date: p.date,
-          scheduled_start: new Date(`${p.date}T${p.startTime}:00`).toISOString(),
-          scheduled_finish: new Date(`${p.date}T${p.endTime}:00`).toISOString(),
-          location: p.location,
-          instructions: p.instructions,
-          status: "pending" as const,
-          created_by: ctx.userId,
-        }));
+        .map((p) => {
+          let schedStart: string;
+          let schedFinish: string;
+          if (copyTz) {
+            const stamps = buildShiftTimestamps(p.date, p.startTime, p.endTime, copyTz);
+            schedStart = stamps.scheduledStart;
+            schedFinish = stamps.scheduledFinish;
+          } else {
+            schedStart = new Date(`${p.date}T${p.startTime}:00`).toISOString();
+            schedFinish = new Date(`${p.date}T${p.endTime}:00`).toISOString();
+          }
+          return {
+            business_id: ctx.businessId,
+            employee_id: p.employeeId,
+            date: p.date,
+            scheduled_start: schedStart,
+            scheduled_finish: schedFinish,
+            location: p.location,
+            instructions: p.instructions,
+            status: "pending" as const,
+            created_by: ctx.userId,
+          };
+        });
 
       if (shiftsToInsert.length === 0) {
         return NextResponse.json({ error: "No shifts to copy." }, { status: 400 });

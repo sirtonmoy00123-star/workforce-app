@@ -1,6 +1,6 @@
 # Workforce App — Full Architecture
 
-> **Version:** 1.0  
+> **Version:** 2.0 (Post Phase 1–5 Core Reliability Upgrade)  
 > **Last updated:** 2026-08-28  
 > **Production URL:** https://workforce-app-sigma-rouge.vercel.app  
 > **Repository:** github.com/sirtonmoy00123-star/workforce-app
@@ -123,6 +123,11 @@ src/
 │   │
 │   ├── services/                 # Business logic layer
 │   │   ├── tenantContext.ts      # Tenant isolation — derives business_id from session
+│   │   ├── workSessionService.ts # Start/finish work (uses atomic RPC)
+│   │   ├── payableTime.ts        # Payable time engine (pure function)
+│   │   ├── shiftStateMachine.ts  # Lifecycle state machine + guard functions
+│   │   ├── timesheetService.ts   # Timesheet calc + correction recalculation
+│   │   ├── auditService.ts       # Audit event logging
 │   │   ├── shiftValidation.ts    # Shift assignment validation (overlap, availability)
 │   │   ├── recurringShift.ts     # Recurring shift generation
 │   │   ├── dynamicQr.ts          # Dynamic QR code generation + validation
@@ -131,10 +136,16 @@ src/
 │   ├── calculations/             # Pure calculation functions
 │   │   ├── time.ts               # Worked hours, overtime
 │   │   ├── mileage.ts            # Distance from odometer readings
-│   │   ├── payment.ts            # Wage + mileage payment
+│   │   ├── payment.ts            # Wage + mileage payment (rate snapshots)
+│   │   ├── timezone.ts           # IANA timezone conversions, DST-safe
 │   │   └── geo.ts                # Haversine distance for GPS
 │   │
-│   └── validation/               # (reserved for input validation)
+│   └── validation/               # Zod input validation schemas
+│       ├── shift.schema.ts       # Shift create/edit/recurring schemas
+│       ├── attendance.schema.ts  # Check-in/check-out schemas
+│       ├── workSession.schema.ts # File validation (size, MIME, magic bytes)
+│       ├── timesheet.schema.ts   # Approval + correction schemas
+│       └── errors.ts             # Standardized error codes & responses
 │
 ├── types/
 │   ├── index.ts                  # App-level TypeScript types
@@ -178,12 +189,12 @@ supabase/
         │                        │              │
         ▼                        ▼              ▼
 ┌──────────────────┐  ┌──────────────────┐  ┌─────────────────────┐
-│employee_availability│ shift_attendance  │  │ odometer_submissions│
+│employee_availability│ work_sessions    │  │ odometer_submissions│
 │                  │  │                  │  │                     │
 │ day_of_week (0-6)│  │ actual_start     │  │ submission_type     │
 │ start_time       │  │ actual_finish    │  │ (START / FINISH)    │
-│ end_time         │  │ attendance_status│  │ photo_path          │
-│ is_available     │  │ (working/done)   │  │ odometer_reading    │
+│ end_time         │  │ payable_start_at │  │ photo_path          │
+│ is_available     │  │ payable_finish_at│  │ odometer_reading    │
 └──────────────────┘  └──────────────────┘  └─────────────────────┘
                               │
                               ▼
@@ -632,11 +643,32 @@ calculateMileage(startReading, endReading) → number
 
 ### `payment.ts` — Pay Calculation
 ```typescript
-calculatePayment(workedMinutes, hourlyRate, distanceKm, mileageRate) → {
-  wageAmount,      // (workedMinutes / 60) × hourlyRate
-  mileageAmount,   // distanceKm × mileageRate
-  totalAmount      // wage + mileage
+calculatePayment(workedMinutes, distanceKm, hourlyRateSnapshot, mileageRateSnapshot) → {
+  wageAmount,      // (workedMinutes / 60) × hourlyRateSnapshot
+  mileageAmount,   // distanceKm × mileageRateSnapshot
+  totalAmount      // wage + mileage (round to 2 decimal places)
 }
+// Uses RATE SNAPSHOTS — never the employee's current rate
+```
+
+### `timezone.ts` — IANA Timezone Conversions
+```typescript
+localToUtc(date, time, timezone) → ISO string
+utcToLocal(isoString, timezone) → { date, time }
+buildShiftTimestamps(date, startTime, endTime, timezone) → { scheduledStart, scheduledFinish }
+// Handles DST transitions and overnight shifts correctly
+```
+
+### `payableTime.ts` — Payable Time Engine
+```typescript
+calculatePayableTime(input, policy) → {
+  payableStartAt, payableFinishAt,
+  actualWorkedMinutes, payableWorkedMinutes,
+  paidBreakMinutes, unpaidBreakMinutes,
+  adjustments[]
+}
+// Pure function. Supports: EXACT_TIME, NEAREST_5/10/15/30 rounding,
+// early-start capping, break deduction. Never queries the database.
 ```
 
 ### `geo.ts` — GPS Distance
@@ -645,11 +677,17 @@ haversineDistance(lat1, lng1, lat2, lng2) → metres
 // Used for attendance geofencing
 ```
 
+### Single Calculation Path (Phase 5J)
+```
+Work Session → Payable Time Engine → Mileage Engine → Payment Engine → Timesheet Snapshot
+```
+No competing wage calculations exist. UI components display calculated results only.
+
 ---
 
 ## 12. Key Workflows
 
-### Shift Lifecycle
+### Shift Lifecycle (State Machine)
 
 ```
 Admin creates shift (pending)
@@ -659,23 +697,44 @@ Employee sees on shift list
     │
     ├── Accept → status: accepted
     │   │
+    │   ├── [Admin edits material details] → updated_pending
+    │   │   └── Employee must re-accept before any work action
+    │   │
     │   ├── [If attendance required] Check In (QR → GPS → Selfie)
+    │   │   └── Creates attendance_record (presence evidence only)
     │   │
     │   ├── Start Shift (+ odometer photo if enabled)
-    │   │   └── Creates shift_attendance: status = working
+    │   │   └── Creates work_session: status = working
+    │   │       (Check-in ≠ Start Work — separate by design)
     │   │
     │   ├── [During] Upload task proof photos (if configured)
     │   │
     │   ├── Finish Shift (+ odometer photo if enabled)
-    │   │   ├── Creates odometer_submissions (FINISH)
-    │   │   ├── Updates shift_attendance: status = completed
-    │   │   ├── Auto-calculates: hours, distance, pay
-    │   │   └── Creates timesheet: status = submitted
+    │   │   └── Atomic RPC: complete_work_session()
+    │   │       ├── Updates work_session: status = completed
+    │   │       ├── Calculates payable time (via engine)
+    │   │       ├── Creates timesheet: status = submitted
+    │   │       ├── Updates shift: status = completed
+    │   │       └── Inserts audit event
+    │   │       (Single transaction — all or nothing)
     │   │
     │   └── [If attendance required] Check Out
     │
-    └── Decline → status: declined
+    ├── Decline → status: declined
+    └── Admin Cancel → status: cancelled
 ```
+
+**Guard functions** (`shiftStateMachine.ts`):
+- `canAcceptShift`, `canDeclineShift`, `canCheckIn`, `canStartWork`
+- `canFinishWork`, `canCheckout`, `canGenerateTimesheet`
+- `canPublishShift`, `canCancelShift`, `assertShiftTransition`
+
+**Key invariants:**
+- `updated_pending` blocks check-in, start work, and finish work
+- One work session per shift (UNIQUE constraint)
+- One timesheet per shift (UNIQUE constraint, migration 024)
+- One attendance record per shift (UNIQUE constraint, migration 024)
+- Rate snapshots copied at shift publish, immutable thereafter
 
 ### Admin Edit Workflow
 
@@ -892,6 +951,13 @@ await adminClient.storage.from("bucket").upload(fileName, fileBuffer);
 | 015b | `015b_fix_notification_rls.sql` | Fix notification RLS policies |
 | 016 | `016_security_audit_fixes.sql` | Security audit patches |
 | 017 | `017_checkout_columns.sql` | Checkout selfie + QR columns |
+| 018 | `018_timesheet_payment_link.sql` | Timesheet ↔ payment linking |
+| 019 | `019_work_sessions.sql` | `shift_attendance` → `work_sessions` rename + new columns |
+| 020 | `020_rate_snapshots.sql` | `hourly_rate_snapshot`, `mileage_rate_snapshot` on shifts |
+| 021 | `021_timesheet_extensions.sql` | `work_session_id` FK, payable/break columns, `calculation_version` |
+| 022 | `022_audit_events.sql` | `audit_events` table for structured audit trail |
+| 023 | `023_backfill_work_sessions.sql` | Backfill work_sessions + enforce NOT NULL rate snapshots |
+| 024 | `024_atomic_finish.sql` | `complete_work_session()` RPC + UNIQUE constraints for idempotency |
 
 ---
 

@@ -5,7 +5,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireRole, handleTenantError } from "@/lib/services/tenantContext";
 import { canFinishWork, type ShiftState } from "@/lib/services/shiftStateMachine";
 import { finishWorkSession, getWorkSession } from "@/lib/services/workSessionService";
-import { workSessionAudit } from "@/lib/services/auditService";
+import { validateImageFile, validateImageMagicBytes } from "@/lib/validation/workSession.schema";
+import { apiError, ErrorCode } from "@/lib/validation/errors";
 
 export async function POST(
   request: Request,
@@ -146,22 +147,32 @@ export async function POST(
       finishOdometerReading = odometerReadingStr ? parseFloat(odometerReadingStr) : NaN;
 
       if (!photo) {
-        return NextResponse.json({ error: "Odometer photo is required." }, { status: 400 });
+        return apiError(ErrorCode.ODOMETER_REQUIRED, "Odometer photo is required.");
       }
       if (isNaN(finishOdometerReading) || finishOdometerReading < 0) {
-        return NextResponse.json({ error: "Valid odometer reading is required." }, { status: 400 });
+        return apiError(ErrorCode.INVALID_INPUT, "Valid odometer reading is required.");
       }
       if (finishOdometerReading < startOdometerReading) {
-        return NextResponse.json({
-          error: `Finish odometer (${finishOdometerReading}) cannot be less than start odometer (${startOdometerReading}).`,
-        }, { status: 400 });
+        return apiError(ErrorCode.INVALID_INPUT,
+          `Finish odometer (${finishOdometerReading}) cannot be less than start odometer (${startOdometerReading}).`);
       }
 
-      // Upload photo
-      const fileExt = photo.name.split(".").pop() || "jpg";
-      const fileName = `${ctx.employeeId}/${shiftId}/finish_${Date.now()}.${fileExt}`;
+      // Validate file: size, MIME type, magic bytes
+      const fileErr = validateImageFile(photo);
+      if (fileErr) {
+        return apiError(ErrorCode.INVALID_FILE, fileErr);
+      }
+
+      // Upload photo (generated filename, never trust client filename)
       const arrayBuffer = await photo.arrayBuffer();
       const fileBuffer = new Uint8Array(arrayBuffer);
+
+      if (!validateImageMagicBytes(fileBuffer)) {
+        return apiError(ErrorCode.INVALID_FILE, "File content does not match a valid image format.");
+      }
+
+      const ext = photo.type === "image/png" ? "png" : photo.type === "image/webp" ? "webp" : "jpg";
+      const fileName = `${ctx.employeeId}/${shiftId}/finish_${Date.now()}.${ext}`;
 
       const { error: uploadError } = await adminClient.storage
         .from("odometer-photos")
@@ -211,23 +222,10 @@ export async function POST(
         finishOdometerReading,
         scheduledStartAt: shift.scheduled_start,
         scheduledEndAt: shift.scheduled_finish,
+        userId: ctx.userId,
       });
 
-      // Fire-and-forget audit
-      workSessionAudit(
-        "WORK_SESSION_FINISHED",
-        { businessId: ctx.businessId, userId: ctx.userId, role: "EMPLOYEE" },
-        result.workSessionId,
-        {
-          after: {
-            shift_id: shiftId,
-            timesheet_id: result.timesheetId,
-            actual_worked_minutes: result.actualWorkedMinutes,
-            payable_worked_minutes: result.payableWorkedMinutes,
-            total_amount: result.totalAmount,
-          },
-        }
-      );
+      // Audit is now handled inside the atomic RPC (complete_work_session)
 
       return NextResponse.json({
         success: true,

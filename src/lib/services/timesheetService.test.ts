@@ -86,7 +86,7 @@ describe("calculateTimesheetValues", () => {
 });
 
 describe("recalculateForCorrection", () => {
-  it("produces same result as calculateTimesheetValues", () => {
+  it("without scheduled times: produces same base values as calculateTimesheetValues", () => {
     const direct = calculateTimesheetValues({
       actualStartAt: "2026-03-15T09:00:00Z",
       actualFinishAt: "2026-03-15T17:00:00Z",
@@ -105,7 +105,14 @@ describe("recalculateForCorrection", () => {
       0.68
     );
 
-    expect(viaCorrection).toEqual(direct);
+    // Base fields match
+    expect(viaCorrection.workedMinutes).toBe(direct.workedMinutes);
+    expect(viaCorrection.wageAmount).toBe(direct.wageAmount);
+    expect(viaCorrection.totalAmount).toBe(direct.totalAmount);
+    // Payable = actual when no scheduled times (legacy fallback)
+    expect(viaCorrection.payableWorkedMinutes).toBe(direct.workedMinutes);
+    expect(viaCorrection.payableStartAt).toBe("2026-03-15T09:00:00Z");
+    expect(viaCorrection.payableFinishAt).toBe("2026-03-15T17:00:00Z");
   });
 
   it("recalculates with corrected times", () => {
@@ -120,5 +127,47 @@ describe("recalculateForCorrection", () => {
 
     expect(result.workedMinutes).toBe(450); // 7.5 hours
     expect(result.wageAmount).toBe(225);    // 7.5 × $30
+  });
+
+  it("with scheduled times: routes through payable time engine", () => {
+    const result = recalculateForCorrection(
+      "2026-03-15T08:50:00Z",  // arrived 10 min early
+      "2026-03-15T17:00:00Z",
+      0,
+      0,
+      30,
+      0,
+      "2026-03-15T09:00:00Z",  // scheduled start
+      "2026-03-15T17:00:00Z"   // scheduled finish
+    );
+
+    // Default policy: payBeforeScheduledStart=false → payable start capped to 09:00
+    expect(result.payableStartAt).toBe("2026-03-15T09:00:00.000Z");
+    expect(result.payableWorkedMinutes).toBe(480); // 8h payable (not 8h10m)
+    expect(result.workedMinutes).toBe(490);        // 8h10m actual
+    expect(result.wageAmount).toBe(240);           // 8h × $30
+  });
+
+  it("with scheduled times + pay-before-start policy", () => {
+    const result = recalculateForCorrection(
+      "2026-03-15T08:50:00Z",  // arrived 10 min early
+      "2026-03-15T17:00:00Z",
+      0,
+      0,
+      30,
+      0,
+      "2026-03-15T09:00:00Z",  // scheduled start
+      "2026-03-15T17:00:00Z",  // scheduled finish
+      {
+        rounding: "EXACT_TIME",
+        payBeforeScheduledStart: true,
+        defaultUnpaidBreakMinutes: 0,
+        defaultPaidBreakMinutes: 0,
+      }
+    );
+
+    // With payBeforeScheduledStart=true, the early 10 min IS payable
+    expect(result.payableStartAt).toBe("2026-03-15T08:50:00.000Z");
+    expect(result.payableWorkedMinutes).toBe(490); // full 8h10m
   });
 });

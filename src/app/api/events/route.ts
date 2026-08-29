@@ -3,6 +3,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin, requireMember, handleTenantError } from "@/lib/services/tenantContext";
+import { buildShiftTimestamps, getBusinessTimezone } from "@/lib/calculations/timezone";
 
 export async function GET(request: Request) {
   try {
@@ -88,16 +89,26 @@ export async function POST(request: Request) {
       );
     }
 
-    if (startTime >= finishTime) {
+    // Build timestamps using business timezone (handles overnight + DST)
+    let startISO: string;
+    let finishISO: string;
+    try {
+      const tz = await getBusinessTimezone(ctx.businessId);
+      const stamps = buildShiftTimestamps(event_date, startTime, finishTime, tz);
+      startISO = stamps.scheduledStart;
+      finishISO = stamps.scheduledFinish;
+    } catch {
+      startISO = new Date(`${event_date}T${startTime}:00`).toISOString();
+      finishISO = new Date(`${event_date}T${finishTime}:00`).toISOString();
+    }
+
+    // Validate finish is after start (using UTC timestamps, handles overnight)
+    if (finishISO <= startISO) {
       return NextResponse.json(
         { error: "Finish time must be after start time." },
         { status: 400 }
       );
     }
-
-    // Build timestamps
-    const startISO = new Date(`${event_date}T${startTime}:00`).toISOString();
-    const finishISO = new Date(`${event_date}T${finishTime}:00`).toISOString();
 
     // 1. Create the event
     const { data: event, error: eventError } = await adminClient

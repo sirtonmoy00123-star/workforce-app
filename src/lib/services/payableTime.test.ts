@@ -173,6 +173,76 @@ describe("calculatePayableTime", () => {
     });
   });
 
+  describe("rounding NEAREST_10", () => {
+    it("rounds to nearest 10 minutes", () => {
+      const input: PayableTimeInput = {
+        ...baseInput,
+        actualFinishAt: "2026-03-15T17:07:00Z", // 487 min
+      };
+      const policy: PayableTimePolicy = {
+        ...DEFAULT_POLICY,
+        rounding: "NEAREST_10",
+      };
+      const result = calculatePayableTime(input, policy);
+      // 487 → round(487/10)*10 = round(48.7)*10 = 49*10 = 490
+      expect(result.payableWorkedMinutes).toBe(490);
+    });
+
+    it("rounds down when below midpoint", () => {
+      const input: PayableTimeInput = {
+        ...baseInput,
+        actualFinishAt: "2026-03-15T17:04:00Z", // 484 min
+      };
+      const policy: PayableTimePolicy = {
+        ...DEFAULT_POLICY,
+        rounding: "NEAREST_10",
+      };
+      const result = calculatePayableTime(input, policy);
+      // 484 → round(484/10)*10 = round(48.4)*10 = 48*10 = 480
+      expect(result.payableWorkedMinutes).toBe(480);
+    });
+  });
+
+  describe("overnight work session", () => {
+    it("handles overnight shift payable time correctly", () => {
+      const input: PayableTimeInput = {
+        scheduledStartAt: "2026-08-28T12:00:00Z",  // 22:00 AEST
+        scheduledEndAt: "2026-08-28T20:00:00Z",     // 06:00 AEST next day
+        actualStartAt: "2026-08-28T12:00:00Z",
+        actualFinishAt: "2026-08-28T20:00:00Z",
+      };
+      const result = calculatePayableTime(input, DEFAULT_POLICY);
+      expect(result.actualWorkedMinutes).toBe(480);
+      expect(result.payableWorkedMinutes).toBe(480);
+    });
+
+    it("caps early start on overnight shifts", () => {
+      const input: PayableTimeInput = {
+        scheduledStartAt: "2026-08-28T12:00:00Z",
+        scheduledEndAt: "2026-08-28T20:00:00Z",
+        actualStartAt: "2026-08-28T11:50:00Z",  // 10 min early
+        actualFinishAt: "2026-08-28T20:00:00Z",
+      };
+      const result = calculatePayableTime(input, DEFAULT_POLICY);
+      expect(result.actualWorkedMinutes).toBe(490);
+      expect(result.payableWorkedMinutes).toBe(480);
+      expect(result.payableStartAt).toBe("2026-08-28T12:00:00.000Z");
+    });
+  });
+
+  describe("rate snapshot isolation", () => {
+    it("payable time is independent of rate values", () => {
+      // Payable time engine produces minutes, not money.
+      // Rate snapshots are consumed downstream by payment engine.
+      // This test verifies the engine returns pure time values.
+      const result = calculatePayableTime(baseInput, DEFAULT_POLICY);
+      expect(result.payableWorkedMinutes).toBe(480);
+      // No rate-related fields exist in the result
+      expect(result).not.toHaveProperty("wageAmount");
+      expect(result).not.toHaveProperty("totalAmount");
+    });
+  });
+
   describe("combined policies", () => {
     it("applies early cap + break deduction + rounding together", () => {
       const input: PayableTimeInput = {

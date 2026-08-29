@@ -94,18 +94,21 @@ export async function POST(request: Request) {
       scheduledFinish = new Date(`${date}T${endTime}:00${tzSuffix}`).toISOString();
     }
 
-    // 2. Check for overlapping shifts
+    // 2. Check for overlapping shifts — query adjacent days for overnight shift detection
+    const createPrevDay = new Date(new Date(date + "T12:00:00Z").getTime() - 86400000).toISOString().slice(0, 10);
+    const createNextDay = new Date(new Date(date + "T12:00:00Z").getTime() + 86400000).toISOString().slice(0, 10);
     const { data: overlapping } = await adminClient
       .from("shifts")
       .select("id")
       .eq("employee_id", employeeId)
-      .eq("date", date)
+      .gte("date", createPrevDay)
+      .lte("date", createNextDay)
       .not("status", "in", '("cancelled","declined")')
       .or(`and(scheduled_start.lt.${scheduledFinish},scheduled_finish.gt.${scheduledStart})`);
 
     if (overlapping && overlapping.length > 0) {
       return NextResponse.json(
-        { error: "Employee already has an overlapping shift on this date." },
+        { error: "Employee already has an overlapping shift." },
         { status: 400 }
       );
     }

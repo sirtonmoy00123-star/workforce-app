@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
+import { buildShiftTimestamps, getBusinessTimezone } from "@/lib/calculations/timezone";
 import {
   generateRecurringDates,
   buildConflictReport,
@@ -46,6 +47,14 @@ async function handlePreview(body: any, ctx: { businessId: string }) {
 
   const adminClient = createAdminClient();
 
+  // Resolve business timezone for overlap checking
+  let businessTz: string | null = null;
+  try {
+    businessTz = await getBusinessTimezone(ctx.businessId);
+  } catch {
+    // Will fall back to unsafe Date parsing
+  }
+
   // 1. Generate dates
   const dates = generateRecurringDates(
     date,
@@ -86,14 +95,19 @@ async function handlePreview(body: any, ctx: { businessId: string }) {
     .gte("date", minDate)
     .lte("date", maxDate);
 
-  // 5. Build conflict report
+  // 5. Build conflict report — pass timezone-safe timestamp builder
+  const stampBuilder = businessTz
+    ? (d: string, s: string, e: string) => buildShiftTimestamps(d, s, e, businessTz!)
+    : undefined;
+
   const preview = buildConflictReport(
     dates,
     employees as EmployeeInfo[],
     startTime,
     endTime,
     availabilities || [],
-    existingShifts || []
+    existingShifts || [],
+    stampBuilder
   );
 
   return NextResponse.json({ success: true, preview });
@@ -121,7 +135,15 @@ async function handleCreate(body: any, ctx: { businessId: string; userId: string
 
   const adminClient = createAdminClient();
 
-  // Build timezone suffix from the client's offset so timestamps are stored correctly.
+  // Build timestamps using business timezone (IANA, DST-safe).
+  // Falls back to legacy timezoneOffsetMinutes if timezone lookup fails.
+  let businessTz: string | null = null;
+  try {
+    businessTz = await getBusinessTimezone(ctx.businessId);
+  } catch {
+    // Will use fallback below
+  }
+
   const offsetMin = typeof timezoneOffsetMinutes === "number" ? timezoneOffsetMinutes : 0;
   const sign = offsetMin <= 0 ? "+" : "-";
   const absMin = Math.abs(offsetMin);
@@ -161,8 +183,16 @@ async function handleCreate(body: any, ctx: { businessId: string; userId: string
 
   for (let dateIdx = 0; dateIdx < dates.length; dateIdx++) {
     const shiftDate = dates[dateIdx];
-    const startISO = new Date(`${shiftDate}T${startTime}:00${tzSuffix}`).toISOString();
-    const endISO = new Date(`${shiftDate}T${endTime}:00${tzSuffix}`).toISOString();
+    let startISO: string;
+    let endISO: string;
+    if (businessTz) {
+      const stamps = buildShiftTimestamps(shiftDate, startTime, endTime, businessTz);
+      startISO = stamps.scheduledStart;
+      endISO = stamps.scheduledFinish;
+    } else {
+      startISO = new Date(`${shiftDate}T${startTime}:00${tzSuffix}`).toISOString();
+      endISO = new Date(`${shiftDate}T${endTime}:00${tzSuffix}`).toISOString();
+    }
 
     // Determine which employees to include for this date
     for (const empId of employeeIds as string[]) {

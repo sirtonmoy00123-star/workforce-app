@@ -355,18 +355,34 @@ async function handlePreviewEdit(shiftId: string, body: any, shift: any, adminCl
     .eq("day_of_week", dayOfWeek)
     .maybeSingle();
 
-  // Fetch existing shifts for overlap check
+  // Fetch existing shifts for overlap check — include adjacent days
+  // so overnight shifts crossing midnight are caught
+  const prevDay = new Date(new Date(date + "T12:00:00Z").getTime() - 86400000).toISOString().slice(0, 10);
+  const nextDay = new Date(new Date(date + "T12:00:00Z").getTime() + 86400000).toISOString().slice(0, 10);
   const { data: existingShifts } = await adminClient
     .from("shifts")
     .select("id, employee_id, date, scheduled_start, scheduled_finish, status")
     .eq("employee_id", shift.employee_id)
-    .eq("date", date);
+    .gte("date", prevDay)
+    .lte("date", nextDay);
 
   // Fetch work session status (replaces shift_attendance for preview)
   const previewWs = await getWorkSession(adminClient, shiftId);
   const attendance: AttendanceData | null = previewWs
     ? { shift_id: shiftId, attendance_status: previewWs.status }
     : null;
+
+  // Build timestamps for timezone-safe validation
+  let previewStartISO: string | undefined;
+  let previewFinishISO: string | undefined;
+  try {
+    const tz = await getBusinessTimezone(shift.business_id);
+    const stamps = buildShiftTimestamps(date, startTime, endTime, tz);
+    previewStartISO = stamps.scheduledStart;
+    previewFinishISO = stamps.scheduledFinish;
+  } catch {
+    // If timezone lookup fails, validation will use fallback
+  }
 
   const input: ShiftAssignmentInput = {
     employeeId: shift.employee_id,
@@ -376,6 +392,8 @@ async function handlePreviewEdit(shiftId: string, body: any, shift: any, adminCl
     location,
     instructions,
     excludeShiftId: shiftId,
+    scheduledStartISO: previewStartISO,
+    scheduledFinishISO: previewFinishISO,
   };
 
   const result = validateShiftAssignment(
@@ -454,11 +472,15 @@ async function handleUpdateShift(shiftId: string, body: any, shift: any, ctx: an
     .eq("day_of_week", dayOfWeek)
     .maybeSingle();
 
+  // Include adjacent days for overnight shift overlap detection
+  const updatePrevDay = new Date(new Date(date + "T12:00:00Z").getTime() - 86400000).toISOString().slice(0, 10);
+  const updateNextDay = new Date(new Date(date + "T12:00:00Z").getTime() + 86400000).toISOString().slice(0, 10);
   const { data: existingShifts } = await adminClient
     .from("shifts")
     .select("id, employee_id, date, scheduled_start, scheduled_finish, status")
     .eq("employee_id", shift.employee_id)
-    .eq("date", date);
+    .gte("date", updatePrevDay)
+    .lte("date", updateNextDay);
 
   // Fetch work session status (replaces shift_attendance for update validation)
   const updateWs = await getWorkSession(adminClient, shiftId);
@@ -474,6 +496,8 @@ async function handleUpdateShift(shiftId: string, body: any, shift: any, ctx: an
     location,
     instructions,
     excludeShiftId: shiftId,
+    scheduledStartISO: newScheduledStart,
+    scheduledFinishISO: newScheduledFinish,
   };
 
   const result = validateShiftAssignment(

@@ -2,19 +2,13 @@
  * Work Session Service — manages the work_sessions lifecycle.
  *
  * Centralizes start/finish work logic so it isn't duplicated
- * across API routes. The finish flow is designed to be wrapped
- * in a single database transaction (Phase 4 will add the RPC).
+ * across API routes. The finish flow uses the atomic PostgreSQL
+ * RPC `complete_work_session()` (migration 024) for transactional
+ * safety — all steps succeed or all roll back.
  */
 
 import { SupabaseClient } from "@supabase/supabase-js";
-import { calculateWorkedMinutes } from "@/lib/calculations/time";
-import { calculateMileage } from "@/lib/calculations/mileage";
-import { calculatePayment } from "@/lib/calculations/payment";
-import {
-  calculatePayableTime,
-  DEFAULT_POLICY,
-  type PayableTimePolicy,
-} from "@/lib/services/payableTime";
+import { type PayableTimePolicy } from "@/lib/services/payableTime";
 
 // ────────────────────────────────────────────────────────────
 // Types
@@ -48,6 +42,8 @@ export interface FinishWorkInput {
   scheduledEndAt: string;
   /** Payable time policy (defaults to EXACT_TIME) */
   policy?: PayableTimePolicy;
+  /** Auth user ID for audit trail */
+  userId?: string;
 }
 
 export interface FinishWorkResult {
@@ -130,147 +126,103 @@ export async function startWorkSession(
 }
 
 // ────────────────────────────────────────────────────────────
-// Finish Work Session + Generate Timesheet
+// Finish Work Session + Generate Timesheet (ATOMIC via RPC)
 //
-// NOTE: In Phase 4 this will be wrapped in a PostgreSQL RPC
-// for true transactional safety. For now it executes sequentially.
+// Uses the PostgreSQL `complete_work_session()` RPC function
+// (migration 024) which runs inside a single transaction with
+// row locking, idempotency, and ROLLBACK on any failure.
 // ────────────────────────────────────────────────────────────
 
 /**
- * Complete a work session and generate the timesheet.
+ * Complete a work session and generate the timesheet atomically.
  *
- * Steps (all must succeed):
- * 1. Get the active work session
- * 2. Calculate payable time
- * 3. Calculate mileage
- * 4. Calculate payment
- * 5. Update work session → FINISHED
- * 6. Create timesheet → submitted
- * 7. Update shift → completed
+ * Calls the `complete_work_session` PostgreSQL RPC which performs
+ * all steps in a single transaction:
+ *   - Lock work session row (prevents concurrent finishes)
+ *   - Validate state
+ *   - Calculate payable time, mileage, payment
+ *   - Update work session → completed
+ *   - Create timesheet (idempotent via UNIQUE shift_id)
+ *   - Update shift → completed
+ *   - Insert audit event
  *
- * Returns the complete result for the API response.
+ * Idempotent: retrying after success returns the existing result.
  */
 export async function finishWorkSession(
   adminClient: SupabaseClient,
   input: FinishWorkInput
 ): Promise<FinishWorkResult> {
-  // 1. Get active work session
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: session, error: sessionErr } = await (adminClient as any)
-    .from("work_sessions")
-    .select("id, actual_start_at, status")
-    .eq("shift_id", input.shiftId)
-    .eq("employee_id", input.employeeId)
-    .single();
+  // Call the atomic RPC
+  const { data, error } = await adminClient.rpc("complete_work_session", {
+    p_shift_id: input.shiftId,
+    p_employee_id: input.employeeId,
+    p_business_id: input.businessId,
+    p_finish_at: input.serverTimestamp,
+    p_hourly_rate: input.hourlyRateSnapshot,
+    p_mileage_rate: input.mileageRateSnapshot,
+    p_start_odometer: input.startOdometerReading,
+    p_finish_odometer: input.finishOdometerReading,
+    p_scheduled_start: input.scheduledStartAt,
+    p_scheduled_finish: input.scheduledEndAt,
+    p_unpaid_break_min: input.policy?.defaultUnpaidBreakMinutes ?? 0,
+    p_paid_break_min: input.policy?.defaultPaidBreakMinutes ?? 0,
+    p_user_id: input.userId ?? null,
+  });
 
-  if (sessionErr || !session) {
-    throw new Error("No work session found for this shift.");
-  }
-  if (session.status !== "working") {
-    throw new Error("This work session is not active.");
-  }
-
-  // 2. Calculate payable time
-  const policy = input.policy || DEFAULT_POLICY;
-  const payableResult = calculatePayableTime(
-    {
-      scheduledStartAt: input.scheduledStartAt,
-      scheduledEndAt: input.scheduledEndAt,
-      actualStartAt: session.actual_start_at,
-      actualFinishAt: input.serverTimestamp,
-    },
-    policy
-  );
-
-  // 3. Calculate mileage
-  const distanceKm = calculateMileage(
-    input.startOdometerReading,
-    input.finishOdometerReading
-  );
-
-  // 4. Calculate payment using payable minutes (not actual)
-  const payment = calculatePayment(
-    payableResult.payableWorkedMinutes,
-    distanceKm,
-    input.hourlyRateSnapshot,
-    input.mileageRateSnapshot
-  );
-
-  // 5. Update work session
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error: updateErr } = await (adminClient as any)
-    .from("work_sessions")
-    .update({
-      actual_finish_at: input.serverTimestamp,
-      payable_start_at: payableResult.payableStartAt,
-      payable_finish_at: payableResult.payableFinishAt,
-      actual_worked_minutes: payableResult.actualWorkedMinutes,
-      payable_worked_minutes: payableResult.payableWorkedMinutes,
-      unpaid_break_minutes: payableResult.unpaidBreakMinutes,
-      paid_break_minutes: payableResult.paidBreakMinutes,
-      finish_source: "EMPLOYEE_ACTION",
-      status: "completed",
-    })
-    .eq("id", session.id);
-
-  if (updateErr) {
-    throw new Error(`Failed to update work session: ${updateErr.message}`);
+  if (error) {
+    // Map PostgreSQL error messages to structured errors
+    const msg = error.message || "";
+    if (msg.includes("WORK_SESSION_NOT_FOUND")) {
+      throw Object.assign(new Error("No work session found for this shift."), { code: "WORK_SESSION_NOT_FOUND" });
+    }
+    if (msg.includes("WORK_SESSION_NOT_ACTIVE")) {
+      throw Object.assign(new Error("This work session is not active."), { code: "WORK_SESSION_NOT_ACTIVE" });
+    }
+    if (msg.includes("INVALID_TIME_RANGE")) {
+      throw Object.assign(new Error("Finish time must be after start time."), { code: "INVALID_TIME_RANGE" });
+    }
+    throw new Error(`Failed to complete work session: ${msg}`);
   }
 
-  // 6. Create timesheet
-  const { data: timesheet, error: tsErr } = await adminClient
-    .from("timesheets")
-    .insert({
-      shift_id: input.shiftId,
-      employee_id: input.employeeId,
-      business_id: input.businessId,
-      work_session_id: session.id,
-      scheduled_start: input.scheduledStartAt,
-      scheduled_finish: input.scheduledEndAt,
-      actual_start: session.actual_start_at,
-      actual_finish: input.serverTimestamp,
-      worked_minutes: payableResult.actualWorkedMinutes,
-      payable_worked_minutes: payableResult.payableWorkedMinutes,
-      paid_break_minutes: payableResult.paidBreakMinutes,
-      unpaid_break_minutes: payableResult.unpaidBreakMinutes,
-      start_odometer: input.startOdometerReading,
-      finish_odometer: input.finishOdometerReading,
-      distance_km: distanceKm,
-      hourly_rate_snapshot: input.hourlyRateSnapshot,
-      mileage_rate_snapshot: input.mileageRateSnapshot,
-      wage_amount: payment.wageAmount,
-      mileage_amount: payment.mileageAmount,
-      total_amount: payment.totalAmount,
-      status: "submitted",
-    })
-    .select("id")
-    .single();
+  // data is JSONB from the RPC
+  const result = data as Record<string, unknown>;
 
-  if (tsErr) {
-    throw new Error(`Failed to create timesheet: ${tsErr.message}`);
-  }
+  // If idempotent (already completed), fetch the existing timesheet data
+  if (result.idempotent) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: ts } = await adminClient
+      .from("timesheets")
+      .select("*")
+      .eq("shift_id", input.shiftId)
+      .single();
 
-  // 7. Update shift status
-  const { error: shiftErr } = await adminClient
-    .from("shifts")
-    .update({ status: "completed" })
-    .eq("id", input.shiftId);
-
-  if (shiftErr) {
-    throw new Error(`Failed to update shift status: ${shiftErr.message}`);
+    if (ts) {
+      return {
+        workSessionId: result.work_session_id as string,
+        timesheetId: ts.id,
+        actualStartAt: ts.actual_start,
+        actualFinishAt: ts.actual_finish,
+        actualWorkedMinutes: ts.worked_minutes,
+        payableWorkedMinutes: ts.payable_worked_minutes ?? ts.worked_minutes,
+        distanceKm: ts.distance_km,
+        wageAmount: ts.wage_amount,
+        mileageAmount: ts.mileage_amount,
+        totalAmount: ts.total_amount,
+      };
+    }
   }
 
   return {
-    workSessionId: session.id,
-    timesheetId: timesheet.id,
-    actualStartAt: session.actual_start_at,
-    actualFinishAt: input.serverTimestamp,
-    actualWorkedMinutes: payableResult.actualWorkedMinutes,
-    payableWorkedMinutes: payableResult.payableWorkedMinutes,
-    distanceKm,
-    wageAmount: payment.wageAmount,
-    mileageAmount: payment.mileageAmount,
-    totalAmount: payment.totalAmount,
+    workSessionId: result.work_session_id as string,
+    timesheetId: result.timesheet_id as string,
+    actualStartAt: result.actual_start_at as string,
+    actualFinishAt: result.actual_finish_at as string,
+    actualWorkedMinutes: Number(result.actual_worked_minutes),
+    payableWorkedMinutes: Number(result.payable_worked_minutes),
+    distanceKm: Number(result.distance_km),
+    wageAmount: Number(result.wage_amount),
+    mileageAmount: Number(result.mileage_amount),
+    totalAmount: Number(result.total_amount),
   };
 }
 

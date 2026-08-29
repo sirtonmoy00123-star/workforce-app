@@ -3,6 +3,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
+import { buildShiftTimestamps, getBusinessTimezone } from "@/lib/calculations/timezone";
 
 export interface AvailableEmployee {
   id: string;
@@ -74,15 +75,28 @@ export async function GET(request: Request) {
       .in("employee_id", employeeIds)
       .eq("day_of_week", dayOfWeek);
 
-    // 3. Get existing shifts on this date for overlap check
-    const shiftStartISO = new Date(`${date}T${startTime}:00`).toISOString();
-    const shiftEndISO = new Date(`${date}T${endTime}:00`).toISOString();
+    // 3. Get existing shifts for overlap check — use business timezone
+    let shiftStartISO: string;
+    let shiftEndISO: string;
+    try {
+      const tz = await getBusinessTimezone(ctx.businessId);
+      const stamps = buildShiftTimestamps(date, startTime, endTime, tz);
+      shiftStartISO = stamps.scheduledStart;
+      shiftEndISO = stamps.scheduledFinish;
+    } catch {
+      shiftStartISO = new Date(`${date}T${startTime}:00`).toISOString();
+      shiftEndISO = new Date(`${date}T${endTime}:00`).toISOString();
+    }
 
+    // Include adjacent days for overnight shift overlap detection
+    const prevDay = new Date(new Date(date + "T12:00:00Z").getTime() - 86400000).toISOString().slice(0, 10);
+    const nextDay = new Date(new Date(date + "T12:00:00Z").getTime() + 86400000).toISOString().slice(0, 10);
     const { data: existingShifts } = await adminClient
       .from("shifts")
       .select("id, employee_id, date, scheduled_start, scheduled_finish, status")
       .in("employee_id", employeeIds)
-      .eq("date", date)
+      .gte("date", prevDay)
+      .lte("date", nextDay)
       .not("status", "in", '("cancelled","declined")');
 
     // 4. Get weekly hours — all shifts this week for each employee

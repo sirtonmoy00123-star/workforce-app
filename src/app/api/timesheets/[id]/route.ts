@@ -47,18 +47,18 @@ export async function GET(
       .eq("shift_id", timesheet.shift_id)
       .order("server_timestamp", { ascending: true });
 
-    // Get shift info (include scheduled times and shift_attendance)
+    // Get shift info (scheduled times, location)
     const { data: shift } = await adminClient
       .from("shifts")
       .select("location, instructions, scheduled_start, scheduled_finish")
       .eq("id", timesheet.shift_id)
       .single();
 
-    // Get work session record (actual work start/finish)
+    // Get work session record (actual work start/finish, payable time)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: shiftAttendance } = await (adminClient as any)
+    const { data: workSession } = await (adminClient as any)
       .from("work_sessions")
-      .select("actual_start_at, actual_finish_at, status")
+      .select("actual_start_at, actual_finish_at, payable_start_at, payable_finish_at, actual_worked_minutes, payable_worked_minutes, paid_break_minutes, unpaid_break_minutes, status")
       .eq("shift_id", timesheet.shift_id)
       .maybeSingle();
 
@@ -93,8 +93,19 @@ export async function GET(
       shift_location: shift?.location || null,
       shift_scheduled_start: shift?.scheduled_start || null,
       shift_scheduled_finish: shift?.scheduled_finish || null,
-      shift_work_start: shiftAttendance?.actual_start_at || null,
-      shift_work_finish: shiftAttendance?.actual_finish_at || null,
+      shift_work_start: workSession?.actual_start_at || null,
+      shift_work_finish: workSession?.actual_finish_at || null,
+      work_session: workSession ? {
+        actual_start_at: workSession.actual_start_at,
+        actual_finish_at: workSession.actual_finish_at,
+        payable_start_at: workSession.payable_start_at,
+        payable_finish_at: workSession.payable_finish_at,
+        actual_worked_minutes: workSession.actual_worked_minutes,
+        payable_worked_minutes: workSession.payable_worked_minutes,
+        paid_break_minutes: workSession.paid_break_minutes,
+        unpaid_break_minutes: workSession.unpaid_break_minutes,
+        status: workSession.status,
+      } : null,
       attendance: attendanceRecord ? {
         ...attendanceRecord,
         exceptions: attendanceExceptions,

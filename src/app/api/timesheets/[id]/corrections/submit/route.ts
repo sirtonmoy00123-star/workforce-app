@@ -114,14 +114,23 @@ export async function POST(
       return NextResponse.json({ error: "Ending odometer cannot be lower than starting odometer." }, { status: 400 });
     }
 
-    // Recalculate via unified timesheet service (single calculation path)
+    // Fetch the shift's scheduled times for payable time engine
+    const { data: shift } = await adminClient
+      .from("shifts")
+      .select("scheduled_start, scheduled_finish")
+      .eq("id", timesheet.shift_id)
+      .single();
+
+    // Recalculate via unified timesheet service (routes through payable time engine)
     const calc = recalculateForCorrection(
       finalActualStart,
       finalActualFinish,
       finalStartOdometer,
       finalFinishOdometer,
       timesheet.hourly_rate_snapshot,
-      timesheet.mileage_rate_snapshot
+      timesheet.mileage_rate_snapshot,
+      shift?.scheduled_start,
+      shift?.scheduled_finish
     );
 
     // Build corrected values snapshot
@@ -134,6 +143,7 @@ export async function POST(
 
     const recalculatedValues = {
       worked_minutes: calc.workedMinutes,
+      payable_worked_minutes: calc.payableWorkedMinutes,
       distance_km: calc.distanceKm,
       wage_amount: calc.wageAmount,
       mileage_amount: calc.mileageAmount,
@@ -160,7 +170,7 @@ export async function POST(
       return NextResponse.json({ error: updateCorrError.message }, { status: 500 });
     }
 
-    // Update the timesheet with corrected values
+    // Update the timesheet with corrected values (including payable fields)
     const { error: updateTsError } = await adminClient
       .from("timesheets")
       .update({
@@ -169,6 +179,9 @@ export async function POST(
         start_odometer: finalStartOdometer,
         finish_odometer: finalFinishOdometer,
         worked_minutes: calc.workedMinutes,
+        payable_worked_minutes: calc.payableWorkedMinutes,
+        paid_break_minutes: calc.paidBreakMinutes,
+        unpaid_break_minutes: calc.unpaidBreakMinutes,
         distance_km: calc.distanceKm,
         wage_amount: calc.wageAmount,
         mileage_amount: calc.mileageAmount,
@@ -179,6 +192,25 @@ export async function POST(
 
     if (updateTsError) {
       return NextResponse.json({ error: updateTsError.message }, { status: 500 });
+    }
+
+    // Also update the work_session to keep it in sync with corrected values
+    if (timesheet.work_session_id) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (adminClient as any)
+        .from("work_sessions")
+        .update({
+          actual_start_at: finalActualStart,
+          actual_finish_at: finalActualFinish,
+          payable_start_at: calc.payableStartAt,
+          payable_finish_at: calc.payableFinishAt,
+          actual_worked_minutes: calc.workedMinutes,
+          payable_worked_minutes: calc.payableWorkedMinutes,
+          paid_break_minutes: calc.paidBreakMinutes,
+          unpaid_break_minutes: calc.unpaidBreakMinutes,
+          requires_review: true,
+        })
+        .eq("id", timesheet.work_session_id);
     }
 
     return NextResponse.json({

@@ -3,6 +3,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin, requireMember, handleTenantError } from "@/lib/services/tenantContext";
+import { buildShiftTimestamps, getBusinessTimezone } from "@/lib/calculations/timezone";
 
 export async function GET(
   _request: Request,
@@ -215,8 +216,17 @@ export async function PUT(
         return NextResponse.json({ error: "Event name, date, start time, and finish time are required." }, { status: 400 });
       }
 
-      const startISO = new Date(`${event_date}T${startTime}:00`).toISOString();
-      const finishISO = new Date(`${event_date}T${finishTime}:00`).toISOString();
+      let startISO: string;
+      let finishISO: string;
+      try {
+        const tz = await getBusinessTimezone(event.business_id);
+        const stamps = buildShiftTimestamps(event_date, startTime, finishTime, tz);
+        startISO = stamps.scheduledStart;
+        finishISO = stamps.scheduledFinish;
+      } catch {
+        startISO = new Date(`${event_date}T${startTime}:00`).toISOString();
+        finishISO = new Date(`${event_date}T${finishTime}:00`).toISOString();
+      }
 
       // Update event
       await adminClient

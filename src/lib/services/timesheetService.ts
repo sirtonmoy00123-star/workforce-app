@@ -13,6 +13,11 @@
 import { calculateWorkedMinutes } from "@/lib/calculations/time";
 import { calculateMileage } from "@/lib/calculations/mileage";
 import { calculatePayment, type PaymentBreakdown } from "@/lib/calculations/payment";
+import {
+  calculatePayableTime,
+  DEFAULT_POLICY,
+  type PayableTimePolicy,
+} from "@/lib/services/payableTime";
 
 // ────────────────────────────────────────────────────────────
 // Types
@@ -75,9 +80,12 @@ export function calculateTimesheetValues(input: TimesheetCalcInput): TimesheetCa
 
 /**
  * Recalculate a timesheet after a correction.
- * Takes the corrected values and produces new totals.
+ * Routes through the payable time engine so rounding/break
+ * policies apply identically to the normal finish flow.
  *
- * Replaces the inline calculation previously in corrections/submit/route.ts.
+ * @param scheduledStartAt  — the shift's scheduled start (ISO)
+ * @param scheduledEndAt    — the shift's scheduled finish (ISO)
+ * @param policy            — payable time policy (defaults to EXACT_TIME)
  */
 export function recalculateForCorrection(
   correctedStart: string,
@@ -85,9 +93,55 @@ export function recalculateForCorrection(
   correctedStartOdometer: number,
   correctedFinishOdometer: number,
   hourlyRateSnapshot: number,
-  mileageRateSnapshot: number
-): TimesheetCalcResult {
-  return calculateTimesheetValues({
+  mileageRateSnapshot: number,
+  scheduledStartAt?: string,
+  scheduledEndAt?: string,
+  policy?: PayableTimePolicy
+): TimesheetCalcResult & {
+  payableStartAt: string;
+  payableFinishAt: string;
+  payableWorkedMinutes: number;
+  paidBreakMinutes: number;
+  unpaidBreakMinutes: number;
+} {
+  const distanceKm = calculateMileage(correctedStartOdometer, correctedFinishOdometer);
+
+  // Use payable time engine when scheduled times are available
+  if (scheduledStartAt && scheduledEndAt) {
+    const payable = calculatePayableTime(
+      {
+        scheduledStartAt,
+        scheduledEndAt,
+        actualStartAt: correctedStart,
+        actualFinishAt: correctedFinish,
+      },
+      policy || DEFAULT_POLICY
+    );
+
+    const payment: PaymentBreakdown = calculatePayment(
+      payable.payableWorkedMinutes,
+      distanceKm,
+      hourlyRateSnapshot,
+      mileageRateSnapshot
+    );
+
+    return {
+      workedMinutes: payable.actualWorkedMinutes,
+      distanceKm,
+      wageAmount: payment.wageAmount,
+      mileageAmount: payment.mileageAmount,
+      adjustmentAmount: 0,
+      totalAmount: round2(payment.totalAmount),
+      payableStartAt: payable.payableStartAt,
+      payableFinishAt: payable.payableFinishAt,
+      payableWorkedMinutes: payable.payableWorkedMinutes,
+      paidBreakMinutes: payable.paidBreakMinutes,
+      unpaidBreakMinutes: payable.unpaidBreakMinutes,
+    };
+  }
+
+  // Fallback: no scheduled times (legacy corrections) — actual = payable
+  const base = calculateTimesheetValues({
     actualStartAt: correctedStart,
     actualFinishAt: correctedFinish,
     startOdometer: correctedStartOdometer,
@@ -95,6 +149,15 @@ export function recalculateForCorrection(
     hourlyRateSnapshot,
     mileageRateSnapshot,
   });
+
+  return {
+    ...base,
+    payableStartAt: correctedStart,
+    payableFinishAt: correctedFinish,
+    payableWorkedMinutes: base.workedMinutes,
+    paidBreakMinutes: 0,
+    unpaidBreakMinutes: 0,
+  };
 }
 
 function round2(value: number): number {

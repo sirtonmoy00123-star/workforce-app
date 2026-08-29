@@ -8,6 +8,9 @@ import {
   canFinishWork,
   canCheckout,
   canGenerateTimesheet,
+  canPublishShift,
+  canCancelShift,
+  assertShiftTransition,
   isValidTransition,
   type ShiftState,
 } from "./shiftStateMachine";
@@ -272,5 +275,116 @@ describe("isValidTransition", () => {
 
   it("handles unknown from status", () => {
     expect(isValidTransition("nonexistent", "accepted")).toBe(false);
+  });
+});
+
+// ────────────────────────────────────────────────────────────
+// canPublishShift
+// ────────────────────────────────────────────────────────────
+
+describe("canPublishShift", () => {
+  it("allows from pending", () => {
+    const state: ShiftState = { shiftStatus: "pending", workSessionStatus: null, hasCheckedIn: false };
+    expect(canPublishShift(state).allowed).toBe(true);
+  });
+
+  it("blocks from accepted", () => {
+    const state: ShiftState = { shiftStatus: "accepted", workSessionStatus: null, hasCheckedIn: false };
+    expect(canPublishShift(state).allowed).toBe(false);
+  });
+});
+
+// ────────────────────────────────────────────────────────────
+// canCancelShift
+// ────────────────────────────────────────────────────────────
+
+describe("canCancelShift", () => {
+  it("allows from pending", () => {
+    const state: ShiftState = { shiftStatus: "pending", workSessionStatus: null, hasCheckedIn: false };
+    expect(canCancelShift(state).allowed).toBe(true);
+  });
+
+  it("allows from accepted", () => {
+    const state: ShiftState = { shiftStatus: "accepted", workSessionStatus: null, hasCheckedIn: false };
+    expect(canCancelShift(state).allowed).toBe(true);
+  });
+
+  it("blocks from completed", () => {
+    const state: ShiftState = { shiftStatus: "completed", workSessionStatus: "completed", hasCheckedIn: false };
+    expect(canCancelShift(state).allowed).toBe(false);
+  });
+
+  it("blocks from working", () => {
+    const state: ShiftState = { shiftStatus: "accepted", workSessionStatus: "working", hasCheckedIn: true };
+    expect(canCancelShift(state).allowed).toBe(false);
+  });
+
+  it("blocks double cancel", () => {
+    const state: ShiftState = { shiftStatus: "cancelled", workSessionStatus: null, hasCheckedIn: false };
+    expect(canCancelShift(state).allowed).toBe(false);
+  });
+});
+
+// ────────────────────────────────────────────────────────────
+// assertShiftTransition
+// ────────────────────────────────────────────────────────────
+
+describe("assertShiftTransition", () => {
+  it("does not throw for allowed transition", () => {
+    expect(() => assertShiftTransition({ allowed: true }, "SHIFT_NOT_ACCEPTED")).not.toThrow();
+  });
+
+  it("throws with error code for blocked transition", () => {
+    try {
+      assertShiftTransition({ allowed: false, reason: "Blocked" }, "SHIFT_NOT_ACCEPTED");
+      expect.fail("Should have thrown");
+    } catch (err: any) {
+      expect(err.message).toBe("Blocked");
+      expect(err.code).toBe("SHIFT_NOT_ACCEPTED");
+    }
+  });
+});
+
+// ────────────────────────────────────────────────────────────
+// Phase 2 acceptance: updated_pending blocks
+// ────────────────────────────────────────────────────────────
+
+describe("updated_pending blocking", () => {
+  const updatedState: ShiftState = { shiftStatus: "updated_pending", workSessionStatus: null, hasCheckedIn: false };
+
+  it("cannot check in when updated_pending", () => {
+    expect(canCheckIn(updatedState).allowed).toBe(false);
+  });
+
+  it("cannot start work when updated_pending", () => {
+    expect(canStartWork(updatedState, false).allowed).toBe(false);
+    expect(canStartWork(updatedState, true).allowed).toBe(false);
+  });
+
+  it("cannot finish work when updated_pending", () => {
+    expect(canFinishWork(updatedState).allowed).toBe(false);
+  });
+
+  it("can accept when updated_pending", () => {
+    expect(canAcceptShift(updatedState).allowed).toBe(true);
+  });
+
+  it("can decline when updated_pending", () => {
+    expect(canDeclineShift(updatedState).allowed).toBe(true);
+  });
+
+  it("accepted shift can check in", () => {
+    const accepted: ShiftState = { shiftStatus: "accepted", workSessionStatus: null, hasCheckedIn: false };
+    expect(canCheckIn(accepted).allowed).toBe(true);
+  });
+
+  it("completed shift cannot start again", () => {
+    const completed: ShiftState = { shiftStatus: "completed", workSessionStatus: "completed", hasCheckedIn: false };
+    expect(canStartWork(completed, false).allowed).toBe(false);
+  });
+
+  it("cancelled shift cannot check in", () => {
+    const cancelled: ShiftState = { shiftStatus: "cancelled", workSessionStatus: null, hasCheckedIn: false };
+    expect(canCheckIn(cancelled).allowed).toBe(false);
   });
 });

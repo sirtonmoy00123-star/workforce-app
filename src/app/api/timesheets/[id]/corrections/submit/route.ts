@@ -171,7 +171,8 @@ export async function POST(
     }
 
     // Update the timesheet with corrected values (including payable fields)
-    const { error: updateTsError } = await adminClient
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error: updateTsError } = await (adminClient as any)
       .from("timesheets")
       .update({
         actual_start: finalActualStart,

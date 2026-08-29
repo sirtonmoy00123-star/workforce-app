@@ -472,6 +472,26 @@ async function handleUpdateShift(shiftId: string, body: any, shift: any, ctx: an
     .eq("day_of_week", dayOfWeek)
     .maybeSingle();
 
+  // Build new timestamps using business timezone (IANA-based, DST-safe)
+  // Falls back to legacy offset approach if timezone lookup fails
+  let newScheduledStart: string;
+  let newScheduledFinish: string;
+  try {
+    const tz = await getBusinessTimezone(shift.business_id);
+    const stamps = buildShiftTimestamps(date, startTime, endTime, tz);
+    newScheduledStart = stamps.scheduledStart;
+    newScheduledFinish = stamps.scheduledFinish;
+  } catch {
+    const offsetMin = typeof timezoneOffsetMinutes === "number" ? timezoneOffsetMinutes : 0;
+    const sign = offsetMin <= 0 ? "+" : "-";
+    const absMin = Math.abs(offsetMin);
+    const offH = String(Math.floor(absMin / 60)).padStart(2, "0");
+    const offM = String(absMin % 60).padStart(2, "0");
+    const tzSuffix = `${sign}${offH}:${offM}`;
+    newScheduledStart = new Date(`${date}T${startTime}:00${tzSuffix}`).toISOString();
+    newScheduledFinish = new Date(`${date}T${endTime}:00${tzSuffix}`).toISOString();
+  }
+
   // Include adjacent days for overnight shift overlap detection
   const updatePrevDay = new Date(new Date(date + "T12:00:00Z").getTime() - 86400000).toISOString().slice(0, 10);
   const updateNextDay = new Date(new Date(date + "T12:00:00Z").getTime() + 86400000).toISOString().slice(0, 10);
@@ -523,26 +543,6 @@ async function handleUpdateShift(shiftId: string, body: any, shift: any, ctx: an
       error: "Warnings require an override reason.",
       validation: result,
     }, { status: 409 });
-  }
-
-  // Build new timestamps using business timezone (IANA-based, DST-safe)
-  // Falls back to legacy offset approach if timezone lookup fails
-  let newScheduledStart: string;
-  let newScheduledFinish: string;
-  try {
-    const tz = await getBusinessTimezone(shift.business_id);
-    const stamps = buildShiftTimestamps(date, startTime, endTime, tz);
-    newScheduledStart = stamps.scheduledStart;
-    newScheduledFinish = stamps.scheduledFinish;
-  } catch {
-    const offsetMin = typeof timezoneOffsetMinutes === "number" ? timezoneOffsetMinutes : 0;
-    const sign = offsetMin <= 0 ? "+" : "-";
-    const absMin = Math.abs(offsetMin);
-    const offH = String(Math.floor(absMin / 60)).padStart(2, "0");
-    const offM = String(absMin % 60).padStart(2, "0");
-    const tzSuffix = `${sign}${offH}:${offM}`;
-    newScheduledStart = new Date(`${date}T${startTime}:00${tzSuffix}`).toISOString();
-    newScheduledFinish = new Date(`${date}T${endTime}:00${tzSuffix}`).toISOString();
   }
 
   // Determine if reconfirmation needed (using timezone-adjusted ISO strings)

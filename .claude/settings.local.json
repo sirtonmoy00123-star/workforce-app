@@ -50,7 +50,9 @@
       "Bash(gh api *)",
       "Bash(git commit -m 'Attendance Phase 4: Employee check-in API and multi-step flow *)",
       "Bash(git commit -m 'Deep audit: fix 5 bugs — QR crash, payment double-count, timezone reconfirmation, threshold inconsistency *)",
-      "Bash(npx vitest *)"
+      "Bash(npx vitest *)",
+      "Bash(git commit -m 'Dashboard QA: fix spinner CSS, API bugs, shared bottom nav *)",
+      "PowerShell(git push origin main)"
     ]
   }
 }

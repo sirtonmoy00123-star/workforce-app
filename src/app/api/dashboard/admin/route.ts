@@ -9,127 +9,135 @@ export async function GET() {
     const ctx = await requireAdmin();
     const adminClient = createAdminClient();
 
-    // Get all employees
-    const { data: employees } = await adminClient
-      .from("employees")
-      .select("id, employment_status")
-      .eq("business_id", ctx.businessId);
+    // ── Wave 1: All independent queries in parallel ──
+    const tz = await getBusinessTimezone(ctx.businessId);
+    const todayStr = utcToLocal(new Date().toISOString(), tz).date;
 
+    const [
+      { data: employees },
+      { count: pendingShifts },
+      { data: todayShiftsData },
+      { count: siteIssues },
+      { count: proofCount, error: proofErr },
+      { count: attendanceReview },
+      { data: actionItems },
+      { count: unreadNotifications },
+    ] = await Promise.all([
+      // Employees
+      adminClient
+        .from("employees")
+        .select("id, employment_status")
+        .eq("business_id", ctx.businessId),
+      // Pending shifts
+      adminClient
+        .from("shifts")
+        .select("*", { count: "exact", head: true })
+        .eq("business_id", ctx.businessId)
+        .eq("status", "pending"),
+      // Today's shifts
+      adminClient
+        .from("shifts")
+        .select("id, status")
+        .eq("business_id", ctx.businessId)
+        .eq("date", todayStr),
+      // Site issues
+      adminClient
+        .from("attendance_exceptions")
+        .select("*", { count: "exact", head: true })
+        .eq("business_id", ctx.businessId)
+        .eq("status", "PENDING"),
+      // Task proof pending
+      adminClient
+        .from("task_proof_submissions")
+        .select("*", { count: "exact", head: true })
+        .eq("business_id", ctx.businessId)
+        .eq("status", "SUBMITTED"),
+      // Attendance needing review
+      adminClient
+        .from("attendance_records")
+        .select("*", { count: "exact", head: true })
+        .eq("business_id", ctx.businessId)
+        .eq("requires_review", true)
+        .eq("verification_status", "NEEDS_REVIEW"),
+      // Action required items
+      adminClient
+        .from("attendance_exceptions")
+        .select(`
+          id,
+          attendance_record_id,
+          employee_id,
+          shift_id,
+          exception_type,
+          difference_minutes,
+          difference_metres,
+          status,
+          created_at,
+          employees ( full_name, employee_number )
+        `)
+        .eq("business_id", ctx.businessId)
+        .eq("status", "PENDING")
+        .order("created_at", { ascending: false })
+        .limit(10),
+      // Unread notifications
+      adminClient
+        .from("notifications")
+        .select("*", { count: "exact", head: true })
+        .eq("business_id", ctx.businessId)
+        .eq("target_role", "admin")
+        .eq("is_read", false),
+    ]);
+
+    // ── Derive employee-dependent values ──
     const totalEmployees = employees?.length || 0;
     const activeEmployees = employees?.filter((e) => e.employment_status === "active").length || 0;
     const employeeIds = employees?.map((e) => e.id) || [];
 
-    // Pending shifts (status = pending)
-    const { count: pendingShifts } = await adminClient
-      .from("shifts")
-      .select("*", { count: "exact", head: true })
-      .eq("business_id", ctx.businessId)
-      .eq("status", "pending");
-
-    // Today's shifts — use business timezone so "today" matches the local date
-    const tz = await getBusinessTimezone(ctx.businessId);
-    const todayStr = utcToLocal(new Date().toISOString(), tz).date;
-    const { data: todayShiftsData } = await adminClient
-      .from("shifts")
-      .select("id, status")
-      .eq("business_id", ctx.businessId)
-      .eq("date", todayStr);
-
+    // Today's shifts breakdown
     const todayShifts = todayShiftsData?.length || 0;
     const todayAssigned = todayShiftsData?.filter((s) => ["pending", "accepted", "updated_pending"].includes(s.status)).length || 0;
     const todayCompleted = todayShiftsData?.filter((s) => s.status === "completed").length || 0;
     const todayNoShows = todayShiftsData?.filter((s) => s.status === "declined" || s.status === "cancelled").length || 0;
 
-    // In-progress = shifts with an active work session (status = working)
-    let todayInProgress = 0;
+    const taskProofPending = !proofErr ? (proofCount || 0) : 0;
+
+    // ── Wave 2: Queries that depend on wave 1 results ──
     const todayShiftIds = (todayShiftsData || []).filter((s) => s.status === "accepted").map((s) => s.id);
-    if (todayShiftIds.length > 0) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { count: workingCount } = await (adminClient as any)
-        .from("work_sessions")
-        .select("*", { count: "exact", head: true })
-        .in("shift_id", todayShiftIds)
-        .eq("status", "working");
-      todayInProgress = workingCount || 0;
-    }
 
-    // Site issues count (attendance exceptions that are unresolved)
-    const { count: siteIssues } = await adminClient
-      .from("attendance_exceptions")
-      .select("*", { count: "exact", head: true })
-      .eq("business_id", ctx.businessId)
-      .eq("status", "PENDING");
+    const [inProgressResult, timesheetResult, unpaidResult] = await Promise.all([
+      // In-progress work sessions
+      todayShiftIds.length > 0
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ? (adminClient as any)
+            .from("work_sessions")
+            .select("*", { count: "exact", head: true })
+            .in("shift_id", todayShiftIds)
+            .eq("status", "working")
+        : Promise.resolve({ count: 0 }),
+      // Submitted timesheets
+      employeeIds.length > 0
+        ? adminClient
+            .from("timesheets")
+            .select("*", { count: "exact", head: true })
+            .in("employee_id", employeeIds)
+            .eq("status", "submitted")
+        : Promise.resolve({ count: 0 }),
+      // Unpaid payments
+      employeeIds.length > 0
+        ? adminClient
+            .from("payments")
+            .select("total_amount")
+            .in("employee_id", employeeIds)
+            .eq("status", "unpaid")
+        : Promise.resolve({ data: [] }),
+    ]);
 
-    // Task proof pending count
-    let taskProofPending = 0;
-    const { count: proofCount, error: proofErr } = await adminClient
-      .from("task_proof_submissions")
-      .select("*", { count: "exact", head: true })
-      .eq("business_id", ctx.businessId)
-      .eq("status", "SUBMITTED");
-    if (!proofErr) taskProofPending = proofCount || 0;
+    const todayInProgress = inProgressResult.count || 0;
+    const submittedTimesheets = timesheetResult.count || 0;
+    const unpaidData = unpaidResult.data || [];
+    const unpaidPayments = unpaidData.length;
+    const unpaidAmount = unpaidData.reduce((sum: number, p: { total_amount: number }) => sum + p.total_amount, 0);
 
-    // Submitted timesheets (awaiting review)
-    let submittedTimesheets = 0;
-    if (employeeIds.length > 0) {
-      const { count } = await adminClient
-        .from("timesheets")
-        .select("*", { count: "exact", head: true })
-        .in("employee_id", employeeIds)
-        .eq("status", "submitted");
-      submittedTimesheets = count || 0;
-    }
-
-    // Attendance needing review
-    const { count: attendanceReview } = await adminClient
-      .from("attendance_records")
-      .select("*", { count: "exact", head: true })
-      .eq("business_id", ctx.businessId)
-      .eq("requires_review", true)
-      .eq("verification_status", "NEEDS_REVIEW");
-
-    // Action Required: recent unresolved attendance exceptions
-    const { data: actionItems } = await adminClient
-      .from("attendance_exceptions")
-      .select(`
-        id,
-        attendance_record_id,
-        employee_id,
-        shift_id,
-        exception_type,
-        difference_minutes,
-        difference_metres,
-        status,
-        created_at,
-        employees ( full_name, employee_number )
-      `)
-      .eq("business_id", ctx.businessId)
-      .eq("status", "PENDING")
-      .order("created_at", { ascending: false })
-      .limit(10);
-
-    // Unread notifications count
-    const { count: unreadNotifications } = await adminClient
-      .from("notifications")
-      .select("*", { count: "exact", head: true })
-      .eq("business_id", ctx.businessId)
-      .eq("target_role", "admin")
-      .eq("is_read", false);
-
-    // Unpaid payments
-    let unpaidPayments = 0;
-    let unpaidAmount = 0;
-    if (employeeIds.length > 0) {
-      const { data: unpaid } = await adminClient
-        .from("payments")
-        .select("total_amount")
-        .in("employee_id", employeeIds)
-        .eq("status", "unpaid");
-      unpaidPayments = unpaid?.length || 0;
-      unpaidAmount = unpaid?.reduce((sum, p) => sum + p.total_amount, 0) || 0;
-    }
-
-    return NextResponse.json({
+    const response = NextResponse.json({
       totalEmployees,
       activeEmployees,
       pendingShifts: pendingShifts || 0,
@@ -147,6 +155,11 @@ export async function GET() {
       actionRequired: actionItems || [],
       unreadNotifications: unreadNotifications || 0,
     });
+
+    // Cache for 30s, serve stale while revalidating for up to 60s
+    response.headers.set("Cache-Control", "private, max-age=30, stale-while-revalidate=60");
+
+    return response;
   } catch (err) {
     return handleTenantError(err);
   }

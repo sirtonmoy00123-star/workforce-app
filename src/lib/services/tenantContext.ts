@@ -94,10 +94,10 @@ export async function getCurrentBusinessContext(): Promise<BusinessContext> {
     throw new TenantError("Your account has been disabled. Contact your administrator.", 403);
   }
 
-  // 3. Look up active membership
+  // 3. Look up active membership (with business join to save a roundtrip)
   const { data: membership, error: memberError } = await adminClient
     .from("business_members")
-    .select("id, business_id, role, status")
+    .select("id, business_id, role, status, businesses ( id, status )")
     .eq("user_id", appUser.id)
     .eq("status", "ACTIVE")
     .limit(1)
@@ -110,14 +110,11 @@ export async function getCurrentBusinessContext(): Promise<BusinessContext> {
     );
   }
 
-  // 4. Verify the business is active
-  const { data: business, error: bizError } = await adminClient
-    .from("businesses")
-    .select("id, status")
-    .eq("id", membership.business_id)
-    .single();
+  // 4. Verify the business is active (from joined data)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const business = (membership as any).businesses;
 
-  if (bizError || !business) {
+  if (!business) {
     throw new TenantError("Business not found.", 403);
   }
 

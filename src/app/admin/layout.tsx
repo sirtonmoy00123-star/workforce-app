@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import AdminNav from "@/components/AdminNav";
+import AdminBottomNav from "@/components/AdminBottomNav";
 
 export default async function AdminLayout({
   children,
@@ -27,9 +28,10 @@ export default async function AdminLayout({
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col pb-16 md:pb-0">
       <AdminNav />
       <main className="flex-1 p-4 md:p-6 max-w-7xl mx-auto w-full">{children}</main>
+      <AdminBottomNav />
     </div>
   );
 }

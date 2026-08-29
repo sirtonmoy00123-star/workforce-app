@@ -36,10 +36,22 @@ export async function GET() {
       .eq("date", todayStr);
 
     const todayShifts = todayShiftsData?.length || 0;
-    const todayAssigned = todayShiftsData?.filter((s) => s.status === "accepted" || s.status === "pending" || s.status === "updated_pending").length || 0;
-    const todayInProgress = todayShiftsData?.filter((s) => s.status === "accepted").length || 0;
+    const todayAssigned = todayShiftsData?.filter((s) => ["pending", "accepted", "updated_pending"].includes(s.status)).length || 0;
     const todayCompleted = todayShiftsData?.filter((s) => s.status === "completed").length || 0;
     const todayNoShows = todayShiftsData?.filter((s) => s.status === "declined" || s.status === "cancelled").length || 0;
+
+    // In-progress = shifts with an active work session (status = working)
+    let todayInProgress = 0;
+    const todayShiftIds = (todayShiftsData || []).filter((s) => s.status === "accepted").map((s) => s.id);
+    if (todayShiftIds.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { count: workingCount } = await (adminClient as any)
+        .from("work_sessions")
+        .select("*", { count: "exact", head: true })
+        .in("shift_id", todayShiftIds)
+        .eq("status", "working");
+      todayInProgress = workingCount || 0;
+    }
 
     // Site issues count (attendance exceptions that are unresolved)
     const { count: siteIssues } = await adminClient
@@ -50,16 +62,12 @@ export async function GET() {
 
     // Task proof pending count
     let taskProofPending = 0;
-    try {
-      const { count } = await adminClient
-        .from("task_proof_submissions")
-        .select("*", { count: "exact", head: true })
-        .eq("business_id", ctx.businessId)
-        .eq("status", "SUBMITTED");
-      taskProofPending = count || 0;
-    } catch {
-      // table may not have business_id or may not exist
-    }
+    const { count: proofCount, error: proofErr } = await adminClient
+      .from("task_proof_submissions")
+      .select("*", { count: "exact", head: true })
+      .eq("business_id", ctx.businessId)
+      .eq("status", "SUBMITTED");
+    if (!proofErr) taskProofPending = proofCount || 0;
 
     // Submitted timesheets (awaiting review)
     let submittedTimesheets = 0;

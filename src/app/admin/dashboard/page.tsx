@@ -127,13 +127,13 @@ export default function AdminDashboardPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="animate-spin w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full" />
+        <div className="animate-spin w-8 h-8 border-[3px] border-blue-500 border-t-transparent rounded-full" />
       </div>
     );
   }
 
   return (
-    <div className="pb-20 md:pb-6">
+    <div>
       <h1 className="text-2xl font-bold text-gray-900 mb-5">Admin Dashboard</h1>
 
       {/* ── Stats Cards (2×2) ── */}
@@ -330,15 +330,6 @@ export default function AdminDashboardPage() {
         />
       </div>
 
-      {/* ── Bottom Tab Bar (Mobile only) ── */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 md:hidden z-50">
-        <div className="flex items-center justify-around h-16 max-w-lg mx-auto">
-          <BottomTab href="/admin/dashboard" icon="🏠" label="Dashboard" active />
-          <BottomTab href="/admin/roster" icon="📅" label="Shifts" />
-          <BottomTab href="/admin/employees" icon="👥" label="Employees" />
-          <BottomTab href="/admin/payments" icon="💲" label="Payments" />
-        </div>
-      </nav>
     </div>
   );
 }
@@ -451,18 +442,3 @@ function QuickAction({
   );
 }
 
-function BottomTab({ href, icon, label, active }: { href: string; icon: string; label: string; active?: boolean }) {
-  return (
-    <Link
-      href={href}
-      className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg transition-colors ${
-        active
-          ? "text-blue-600"
-          : "text-gray-400 hover:text-gray-600"
-      }`}
-    >
-      <span className="text-xl">{icon}</span>
-      <span className={`text-[10px] font-semibold ${active ? "text-blue-600" : "text-gray-400"}`}>{label}</span>
-    </Link>
-  );
-}

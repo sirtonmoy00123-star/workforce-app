@@ -304,7 +304,7 @@ async function getUnfilledShifts(
       category: "UNFILLED_SHIFT" as AttentionCategory,
       priority: (isToday ? "CRITICAL" : isTomorrow ? "WARNING" : "WARNING") as AttentionPriority,
       title: `Unfilled shift: ${isToday ? "Today" : isTomorrow ? "Tomorrow" : shift.date}`,
-      description: `${new Date(shift.scheduled_start).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit", hour12: true })} – ${new Date(shift.scheduled_finish).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit", hour12: true })}${shift.location ? ` · ${shift.location}` : ""}`,
+      description: `${fmtTime(shift.scheduled_start)} – ${fmtTime(shift.scheduled_finish)}${shift.location ? ` · ${shift.location}` : ""}`,
       entityId: shift.id,
       entityType: "shift",
       actionUrl: `/admin/roster`,
@@ -408,6 +408,16 @@ function mapExceptionCategory(exceptionType: string): AttentionCategory {
     default:
       return "ATTENDANCE_REVIEW";
   }
+}
+
+/** Format an ISO timestamp to "9:30 am" — pure string manipulation, no locale dependency */
+function fmtTime(iso: string): string {
+  const d = new Date(iso);
+  let h = d.getUTCHours();
+  const m = d.getUTCMinutes();
+  const ampm = h >= 12 ? "pm" : "am";
+  h = h % 12 || 12;
+  return `${h}:${String(m).padStart(2, "0")} ${ampm}`;
 }
 
 function formatExceptionTitle(category: AttentionCategory, empName: string): string {

@@ -47,12 +47,16 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Also get employee name for display
-    const { data: employee } = await adminClient
-      .from("employees")
-      .select("full_name, employee_number")
-      .eq("id", shift.employee_id)
-      .single();
+    // Also get employee name for display (skip for unfilled shifts)
+    let employee = null;
+    if (shift.employee_id) {
+      const { data: emp } = await adminClient
+        .from("employees")
+        .select("full_name, employee_number")
+        .eq("id", shift.employee_id)
+        .single();
+      employee = emp;
+    }
 
     // Get work session status if exists
     const workSession = await getWorkSession(adminClient, id);
@@ -333,38 +337,47 @@ async function handlePreviewEdit(shiftId: string, body: any, shift: any, adminCl
     return NextResponse.json({ error: "Date, start time, and end time are required." }, { status: 400 });
   }
 
-  // Fetch employee data
-  const { data: employee } = await adminClient
-    .from("employees")
-    .select("id, business_id, full_name, employment_status")
-    .eq("id", shift.employee_id)
-    .single();
+  // Fetch employee data (skip for unfilled shifts)
+  let employee = null;
+  let availability = null;
+  let existingShifts: unknown[] = [];
 
-  if (!employee) {
-    return NextResponse.json({ error: "Employee not found." }, { status: 404 });
+  if (shift.employee_id) {
+    const { data: emp } = await adminClient
+      .from("employees")
+      .select("id, business_id, full_name, employment_status")
+      .eq("id", shift.employee_id)
+      .single();
+    employee = emp;
+
+    if (!employee) {
+      return NextResponse.json({ error: "Employee not found." }, { status: 404 });
+    }
+
+    // Fetch availability
+    const shiftDate = new Date(date + "T00:00:00");
+    const dayOfWeek = shiftDate.getDay();
+
+    const { data: avail } = await adminClient
+      .from("employee_availability")
+      .select("day_of_week, is_available, start_time, end_time")
+      .eq("employee_id", shift.employee_id)
+      .eq("day_of_week", dayOfWeek)
+      .maybeSingle();
+    availability = avail;
+
+    // Fetch existing shifts for overlap check — include adjacent days
+    // so overnight shifts crossing midnight are caught
+    const prevDay = new Date(new Date(date + "T12:00:00Z").getTime() - 86400000).toISOString().slice(0, 10);
+    const nextDay = new Date(new Date(date + "T12:00:00Z").getTime() + 86400000).toISOString().slice(0, 10);
+    const { data: shifts } = await adminClient
+      .from("shifts")
+      .select("id, employee_id, date, scheduled_start, scheduled_finish, status")
+      .eq("employee_id", shift.employee_id)
+      .gte("date", prevDay)
+      .lte("date", nextDay);
+    existingShifts = shifts || [];
   }
-
-  // Fetch availability
-  const shiftDate = new Date(date + "T00:00:00");
-  const dayOfWeek = shiftDate.getDay();
-
-  const { data: availability } = await adminClient
-    .from("employee_availability")
-    .select("day_of_week, is_available, start_time, end_time")
-    .eq("employee_id", shift.employee_id)
-    .eq("day_of_week", dayOfWeek)
-    .maybeSingle();
-
-  // Fetch existing shifts for overlap check — include adjacent days
-  // so overnight shifts crossing midnight are caught
-  const prevDay = new Date(new Date(date + "T12:00:00Z").getTime() - 86400000).toISOString().slice(0, 10);
-  const nextDay = new Date(new Date(date + "T12:00:00Z").getTime() + 86400000).toISOString().slice(0, 10);
-  const { data: existingShifts } = await adminClient
-    .from("shifts")
-    .select("id, employee_id, date, scheduled_start, scheduled_finish, status")
-    .eq("employee_id", shift.employee_id)
-    .gte("date", prevDay)
-    .lte("date", nextDay);
 
   // Fetch work session status (replaces shift_attendance for preview)
   const previewWs = await getWorkSession(adminClient, shiftId);
@@ -455,25 +468,32 @@ async function handleUpdateShift(shiftId: string, body: any, shift: any, ctx: an
   }
 
   // Re-run validation server-side (never trust the client)
-  const { data: employee } = await adminClient
-    .from("employees")
-    .select("id, business_id, full_name, employment_status")
-    .eq("id", shift.employee_id)
-    .single();
+  let employee = null;
+  let availability = null;
 
-  if (!employee) {
-    return NextResponse.json({ error: "Employee not found." }, { status: 404 });
+  if (shift.employee_id) {
+    const { data: emp } = await adminClient
+      .from("employees")
+      .select("id, business_id, full_name, employment_status")
+      .eq("id", shift.employee_id)
+      .single();
+    employee = emp;
+
+    if (!employee) {
+      return NextResponse.json({ error: "Employee not found." }, { status: 404 });
+    }
+
+    const shiftDate = new Date(date + "T00:00:00");
+    const dayOfWeek = shiftDate.getDay();
+
+    const { data: avail } = await adminClient
+      .from("employee_availability")
+      .select("day_of_week, is_available, start_time, end_time")
+      .eq("employee_id", shift.employee_id)
+      .eq("day_of_week", dayOfWeek)
+      .maybeSingle();
+    availability = avail;
   }
-
-  const shiftDate = new Date(date + "T00:00:00");
-  const dayOfWeek = shiftDate.getDay();
-
-  const { data: availability } = await adminClient
-    .from("employee_availability")
-    .select("day_of_week, is_available, start_time, end_time")
-    .eq("employee_id", shift.employee_id)
-    .eq("day_of_week", dayOfWeek)
-    .maybeSingle();
 
   // Build new timestamps using business timezone (IANA-based, DST-safe)
   // Falls back to legacy offset approach if timezone lookup fails
@@ -496,14 +516,18 @@ async function handleUpdateShift(shiftId: string, body: any, shift: any, ctx: an
   }
 
   // Include adjacent days for overnight shift overlap detection
-  const updatePrevDay = new Date(new Date(date + "T12:00:00Z").getTime() - 86400000).toISOString().slice(0, 10);
-  const updateNextDay = new Date(new Date(date + "T12:00:00Z").getTime() + 86400000).toISOString().slice(0, 10);
-  const { data: existingShifts } = await adminClient
-    .from("shifts")
-    .select("id, employee_id, date, scheduled_start, scheduled_finish, status")
-    .eq("employee_id", shift.employee_id)
-    .gte("date", updatePrevDay)
-    .lte("date", updateNextDay);
+  let existingShifts: unknown[] = [];
+  if (shift.employee_id) {
+    const updatePrevDay = new Date(new Date(date + "T12:00:00Z").getTime() - 86400000).toISOString().slice(0, 10);
+    const updateNextDay = new Date(new Date(date + "T12:00:00Z").getTime() + 86400000).toISOString().slice(0, 10);
+    const { data: shifts } = await adminClient
+      .from("shifts")
+      .select("id, employee_id, date, scheduled_start, scheduled_finish, status")
+      .eq("employee_id", shift.employee_id)
+      .gte("date", updatePrevDay)
+      .lte("date", updateNextDay);
+    existingShifts = shifts || [];
+  }
 
   // Fetch work session status (replaces shift_attendance for update validation)
   const updateWs = await getWorkSession(adminClient, shiftId);

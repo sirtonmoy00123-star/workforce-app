@@ -77,7 +77,31 @@ export function getNextShiftAction(state: ShiftState): ShiftAction {
     };
   }
 
-  // ── Accepted ─────────────────────────────────────────────
+  // ── Working (shift in progress) — check BEFORE accepted fallthrough ──
+  // Status stays "accepted" while working; the work session status distinguishes
+  if (state.hasWorkSession && state.workSessionStatus === "working") {
+    if (state.requiresTaskProof && !state.hasTaskProof) {
+      return {
+        action: "ADD_TASK_PROOF",
+        label: "Add Task Proof",
+        href: `/employee/shifts/${shiftId}`,
+        variant: "warning",
+        description: "Required task proof not yet submitted",
+        urgent: true,
+      };
+    }
+
+    return {
+      action: "FINISH_SHIFT",
+      label: "Finish Shift",
+      href: `/employee/finish-shift/${shiftId}`,
+      variant: "primary",
+      description: "Complete your shift when done",
+      urgent: false,
+    };
+  }
+
+  // ── Accepted (not yet working) ────────────────────────────
   if (status === "accepted") {
     // If attendance check-in is required and not done
     if (state.requiresCheckin && !state.hasCheckin) {
@@ -105,53 +129,6 @@ export function getNextShiftAction(state: ShiftState): ShiftAction {
         ? "You're ready to start"
         : `Shift starts at ${formatTimeShort(state.scheduledStart)}`,
       urgent: canStart,
-    };
-  }
-
-  // ── Working (shift in progress) ──────────────────────────
-  if (status === "accepted" && state.hasWorkSession && state.workSessionStatus === "working") {
-    // Check if task proof is required but missing
-    if (state.requiresTaskProof && !state.hasTaskProof) {
-      return {
-        action: "ADD_TASK_PROOF",
-        label: "Add Task Proof",
-        href: `/employee/shifts/${shiftId}`,
-        variant: "warning",
-        description: "Required task proof not yet submitted",
-        urgent: true,
-      };
-    }
-
-    return {
-      action: "FINISH_SHIFT",
-      label: "Finish Shift",
-      href: `/employee/finish-shift/${shiftId}`,
-      variant: "primary",
-      description: "Complete your shift when done",
-      urgent: false,
-    };
-  }
-
-  // Also handle "working" as a status (work session started)
-  if (state.hasWorkSession && state.workSessionStatus === "working") {
-    if (state.requiresTaskProof && !state.hasTaskProof) {
-      return {
-        action: "ADD_TASK_PROOF",
-        label: "Add Task Proof",
-        href: `/employee/shifts/${shiftId}`,
-        variant: "warning",
-        description: "Required task proof not yet submitted",
-        urgent: true,
-      };
-    }
-
-    return {
-      action: "FINISH_SHIFT",
-      label: "Finish Shift",
-      href: `/employee/finish-shift/${shiftId}`,
-      variant: "primary",
-      description: "Complete your shift when done",
-      urgent: false,
     };
   }
 

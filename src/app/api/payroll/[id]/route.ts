@@ -240,11 +240,11 @@ async function freezePayrollTotals(adminClient: any, payPeriodId: string, busine
       };
     }
     const d = empData[ts.employee_id];
-    d.payable_minutes += ts.payable_minutes || 0;
-    d.ordinary_hours += (ts.payable_minutes || 0) / 60;
-    d.total_mileage_km += ts.total_mileage_km || 0;
-    d.wages += ts.total_pay || 0;
-    d.mileage_payment += ts.mileage_pay || 0;
+    d.payable_minutes += ts.payable_worked_minutes || ts.worked_minutes || 0;
+    d.ordinary_hours += (ts.payable_worked_minutes || ts.worked_minutes || 0) / 60;
+    d.total_mileage_km += ts.distance_km || 0;
+    d.wages += ts.total_amount || 0;
+    d.mileage_payment += ts.mileage_amount || 0;
     // Use latest rate snapshot
     if (ts.hourly_rate_snapshot) d.hourly_rate = ts.hourly_rate_snapshot;
     if (ts.mileage_rate_snapshot) d.mileage_rate = ts.mileage_rate_snapshot;

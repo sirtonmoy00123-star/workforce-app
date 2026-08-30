@@ -51,7 +51,7 @@ Build phase-by-phase per the spec's own process:
 ### Extended phases (Phase 6–12)
 
 6. ✅ **Smart Roster Management** — Shift validation (12 checks), draft roster, roster weeks, publish flow, templates, copy week, recurring shifts (biweekly/weekdays/selected days), leave management, unfilled shifts + assign.
-7. **Pay Period & Payroll Management** — Pay periods, payroll lock, adjustments, history.
+7. ✅ **Pay Period & Payroll Management** — Pay periods (DRAFT→REVIEW→APPROVED→LOCKED→PAID), payroll lock freezes totals, adjustments (bonus/deduction/etc.), per-employee payment tracking, auto-transition to PAID, payroll history, audit log.
 8. **Admin Operations + Employee Experience** — Attention queue, dashboard redesign, next-action engine, mobile UX.
 9. **Notifications + Staffing Automation** — Types, preferences, reminders, missing check-in/out, open shifts, offer expiry.
 10. **Security + Privacy + Audit** — Tenant review, service role audit, audit events, photo privacy, rate limiting, secrets.
@@ -60,4 +60,4 @@ Build phase-by-phase per the spec's own process:
 
 ## Next step
 
-→ **Phase 7: Pay Period & Payroll Management.** Pay periods, payroll lock, adjustments, payment history.
+→ **Phase 8: Admin Operations + Employee Experience.** Attention queue, dashboard redesign, next-action engine, mobile UX.

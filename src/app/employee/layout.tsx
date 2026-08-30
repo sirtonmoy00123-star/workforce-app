@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import EmployeeNav from "@/components/EmployeeNav";
+import EmployeeBottomNav from "@/components/EmployeeBottomNav";
 
 export default async function EmployeeLayout({
   children,
@@ -31,9 +32,10 @@ export default async function EmployeeLayout({
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col pb-16 md:pb-0">
       <EmployeeNav />
       <main className="flex-1 p-4 md:p-6 max-w-4xl mx-auto w-full">{children}</main>
+      <EmployeeBottomNav />
     </div>
   );
 }

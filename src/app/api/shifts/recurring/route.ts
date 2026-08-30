@@ -39,6 +39,8 @@ async function handlePreview(body: any, ctx: { businessId: string }) {
     employeeIds,
     recurrenceType,
     customEndDate,
+    selectedDays,
+    maxOccurrences,
   } = body;
 
   if (!date || !startTime || !endTime || !employeeIds?.length || !recurrenceType) {
@@ -59,7 +61,9 @@ async function handlePreview(body: any, ctx: { businessId: string }) {
   const dates = generateRecurringDates(
     date,
     recurrenceType as RecurrenceType,
-    customEndDate
+    customEndDate,
+    selectedDays,
+    maxOccurrences,
   );
 
   if (dates.length === 0) {
@@ -85,17 +89,27 @@ async function handlePreview(body: any, ctx: { businessId: string }) {
     .in("employee_id", employeeIds)
     .in("day_of_week", daysOfWeek);
 
-  // 4. Fetch existing shifts for all employees in the date range
+  // 4. Fetch existing shifts and approved leave in parallel
   const minDate = dates[0];
   const maxDate = dates[dates.length - 1];
-  const { data: existingShifts } = await adminClient
-    .from("shifts")
-    .select("id, employee_id, date, scheduled_start, scheduled_finish, status")
-    .in("employee_id", employeeIds)
-    .gte("date", minDate)
-    .lte("date", maxDate);
+  const [shiftsResult, leaveResult] = await Promise.all([
+    adminClient
+      .from("shifts")
+      .select("id, employee_id, date, scheduled_start, scheduled_finish, status")
+      .in("employee_id", employeeIds)
+      .gte("date", minDate)
+      .lte("date", maxDate),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (adminClient as any)
+      .from("employee_leave")
+      .select("employee_id, leave_type, start_date, end_date, status")
+      .in("employee_id", employeeIds)
+      .eq("status", "APPROVED")
+      .lte("start_date", maxDate)
+      .gte("end_date", minDate),
+  ]);
 
-  // 5. Build conflict report — pass timezone-safe timestamp builder
+  // 5. Build conflict report — pass timezone-safe timestamp builder + leave
   const stampBuilder = businessTz
     ? (d: string, s: string, e: string) => buildShiftTimestamps(d, s, e, businessTz!)
     : undefined;
@@ -106,8 +120,9 @@ async function handlePreview(body: any, ctx: { businessId: string }) {
     startTime,
     endTime,
     availabilities || [],
-    existingShifts || [],
-    stampBuilder
+    shiftsResult.data || [],
+    stampBuilder,
+    leaveResult.data || [],
   );
 
   return NextResponse.json({ success: true, preview });
@@ -124,6 +139,8 @@ async function handleCreate(body: any, ctx: { businessId: string; userId: string
     employeeIds,
     recurrenceType,
     customEndDate,
+    selectedDays,
+    maxOccurrences,
     assignments, // EmployeeDateStatus[][] — with skipped/overridden flags
     timezoneOffsetMinutes,
     requireOdometer,
@@ -155,7 +172,9 @@ async function handleCreate(body: any, ctx: { businessId: string; userId: string
   const dates = generateRecurringDates(
     date,
     recurrenceType as RecurrenceType,
-    customEndDate
+    customEndDate,
+    selectedDays,
+    maxOccurrences,
   );
 
   // Generate a recurring_group_id if more than one date

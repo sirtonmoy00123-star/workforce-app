@@ -3,7 +3,14 @@
  * and bulk-creates recurring shifts.
  */
 
-export type RecurrenceType = "NONE" | "NEXT_WEEK" | "WEEKLY_END_OF_MONTH" | "WEEKLY_CUSTOM_END";
+export type RecurrenceType =
+  | "NONE"
+  | "NEXT_WEEK"
+  | "WEEKLY_END_OF_MONTH"
+  | "WEEKLY_CUSTOM_END"
+  | "BIWEEKLY"
+  | "WEEKDAYS"
+  | "SELECTED_DAYS";
 
 export interface ShiftTemplate {
   date: string;          // YYYY-MM-DD (original date)
@@ -44,7 +51,11 @@ export interface RecurringPreview {
 export function generateRecurringDates(
   originalDate: string,
   recurrenceType: RecurrenceType,
-  customEndDate?: string
+  customEndDate?: string,
+  /** For SELECTED_DAYS: 0=Sun, 1=Mon, ..., 6=Sat */
+  selectedDays?: number[],
+  /** Max occurrences (alternative to endDate) */
+  maxOccurrences?: number
 ): string[] {
   if (recurrenceType === "NONE") return [originalDate];
 
@@ -58,22 +69,56 @@ export function generateRecurringDates(
     return dates;
   }
 
-  // Weekly repetition — figure out end boundary
+  // Determine step size
+  const stepDays = recurrenceType === "BIWEEKLY" ? 14 : 7;
+
+  // Determine end boundary
   let endBoundary: Date;
 
   if (recurrenceType === "WEEKLY_END_OF_MONTH") {
-    // Last day of the month of the original date
-    endBoundary = new Date(start.getFullYear(), start.getMonth() + 1, 0); // day 0 = last day of prev month
-  } else {
-    // WEEKLY_CUSTOM_END
-    if (!customEndDate) return [originalDate];
+    endBoundary = new Date(start.getFullYear(), start.getMonth() + 1, 0);
+  } else if (customEndDate) {
     endBoundary = new Date(customEndDate + "T00:00:00");
     if (endBoundary <= start) return [originalDate];
+  } else if (maxOccurrences && maxOccurrences > 1) {
+    // Generate up to maxOccurrences, no date boundary needed
+    endBoundary = new Date(start);
+    endBoundary.setFullYear(endBoundary.getFullYear() + 1); // safety cap: 1 year max
+  } else {
+    return [originalDate];
   }
 
+  if (recurrenceType === "WEEKDAYS") {
+    // Generate every weekday (Mon-Fri) until endBoundary
+    let current = new Date(start);
+    while (dates.length < (maxOccurrences || 365)) {
+      current.setDate(current.getDate() + 1);
+      if (current > endBoundary) break;
+      const dow = current.getDay();
+      if (dow >= 1 && dow <= 5) {
+        dates.push(formatDateStr(current));
+      }
+    }
+    return dates;
+  }
+
+  if (recurrenceType === "SELECTED_DAYS" && selectedDays && selectedDays.length > 0) {
+    // Generate every selected day of week until endBoundary
+    let current = new Date(start);
+    while (dates.length < (maxOccurrences || 365)) {
+      current.setDate(current.getDate() + 1);
+      if (current > endBoundary) break;
+      if (selectedDays.includes(current.getDay())) {
+        dates.push(formatDateStr(current));
+      }
+    }
+    return dates;
+  }
+
+  // Standard weekly / biweekly / custom end
   let current = new Date(start);
-  while (true) {
-    current.setDate(current.getDate() + 7);
+  while (dates.length < (maxOccurrences || 365)) {
+    current.setDate(current.getDate() + stepDays);
     if (current > endBoundary) break;
     dates.push(formatDateStr(current));
   }
@@ -122,6 +167,17 @@ export interface ExistingShift {
 }
 
 /**
+ * Leave record for conflict checking.
+ */
+export interface LeaveRecord {
+  employee_id: string;
+  leave_type: string;
+  start_date: string;
+  end_date: string;
+  status: string;
+}
+
+/**
  * Build the preview/conflict report. This runs server-side with data
  * fetched from Supabase.
  */
@@ -134,7 +190,9 @@ export function buildConflictReport(
   existingShifts: ExistingShift[],
   /** Optional timezone-safe timestamp builder. When provided, uses business timezone
    *  instead of unsafe `new Date(date+time)`. Pass `buildShiftTimestamps` bound to the business timezone. */
-  buildTimestampsFn?: (date: string, start: string, end: string) => { scheduledStart: string; scheduledFinish: string }
+  buildTimestampsFn?: (date: string, start: string, end: string) => { scheduledStart: string; scheduledFinish: string },
+  /** Approved leave records to check for conflicts */
+  approvedLeave?: LeaveRecord[]
 ): RecurringPreview {
   const perDateStatuses: EmployeeDateStatus[][] = [];
 
@@ -171,7 +229,31 @@ export function buildConflictReport(
         continue;
       }
 
-      // 2. Check overlapping shifts
+      // 2. Check approved leave conflict
+      if (approvedLeave) {
+        const leaveConflict = approvedLeave.find(
+          (l) =>
+            l.employee_id === emp.id &&
+            l.status === "APPROVED" &&
+            l.start_date <= date &&
+            l.end_date >= date
+        );
+
+        if (leaveConflict) {
+          dateStatuses.push({
+            employeeId: emp.id,
+            employeeName: emp.full_name,
+            date,
+            status: "conflict",
+            conflictReason: `On ${leaveConflict.leave_type.toLowerCase()} leave (${leaveConflict.start_date} – ${leaveConflict.end_date})`,
+            skipped: false,
+            overridden: false,
+          });
+          continue;
+        }
+      }
+
+      // 3. Check overlapping shifts
       const overlap = existingShifts.find(
         (s) =>
           s.employee_id === emp.id &&
@@ -202,7 +284,7 @@ export function buildConflictReport(
         continue;
       }
 
-      // 3. Check availability
+      // 4. Check availability
       const avail = availabilities.find(
         (a) => a.employee_id === emp.id && a.day_of_week === dayOfWeek
       );
@@ -238,7 +320,7 @@ export function buildConflictReport(
         }
       }
 
-      // 4. All clear
+      // 5. All clear
       dateStatuses.push({
         employeeId: emp.id,
         employeeName: emp.full_name,

@@ -48,6 +48,16 @@ Build phase-by-phase per the spec's own process:
 12. ✅ **Dashboards** — Admin and employee home screens with stats and quick actions.
 13. **Security review & end-to-end test** — Run the John Smith test scenario from the spec, verify RLS, permission checks.
 
+### Extended phases (Phase 6–12)
+
+6. ✅ **Smart Roster Management** — Shift validation (12 checks), draft roster, roster weeks, publish flow, templates, copy week, recurring shifts (biweekly/weekdays/selected days), leave management, unfilled shifts + assign.
+7. **Pay Period & Payroll Management** — Pay periods, payroll lock, adjustments, history.
+8. **Admin Operations + Employee Experience** — Attention queue, dashboard redesign, next-action engine, mobile UX.
+9. **Notifications + Staffing Automation** — Types, preferences, reminders, missing check-in/out, open shifts, offer expiry.
+10. **Security + Privacy + Audit** — Tenant review, service role audit, audit events, photo privacy, rate limiting, secrets.
+11. **Testing + CI/CD + Monitoring** — Test suite, GitHub workflow, CI checks, Vercel preview, environments, logging, health check.
+12. **Production Readiness** — Reports, export, business settings, role permissions, platform admin, DB perf, backups, architecture docs.
+
 ## Next step
 
-→ **Phase 13: Security review & end-to-end test.** Verify full workflow, RLS policies, and permission checks.
+→ **Phase 7: Pay Period & Payroll Management.** Pay periods, payroll lock, adjustments, payment history.

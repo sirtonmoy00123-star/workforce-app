@@ -35,7 +35,12 @@ export type AuditAction =
   | "LEAVE_CREATED"
   | "LEAVE_APPROVED"
   | "LEAVE_REJECTED"
-  | "LEAVE_CANCELLED";
+  | "LEAVE_CANCELLED"
+  | "PAY_PERIOD_CREATED"
+  | "PAY_PERIOD_LOCKED"
+  | "PAY_PERIOD_REOPENED"
+  | "PAY_PERIOD_PAID"
+  | "PAYROLL_ADJUSTMENT_CREATED";
 
 export type EntityType =
   | "shift"

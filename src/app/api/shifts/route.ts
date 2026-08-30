@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireMember, requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
 import { buildShiftTimestamps, getBusinessTimezone } from "@/lib/calculations/timezone";
 import { shiftAudit } from "@/lib/services/auditService";
+import { validateShiftAssignment, type ShiftAssignmentInput, type EmployeeData, type ExistingShiftData } from "@/lib/services/shiftValidation";
 
 export async function GET(request: Request) {
   try {
@@ -94,50 +95,103 @@ export async function POST(request: Request) {
       scheduledFinish = new Date(`${date}T${endTime}:00${tzSuffix}`).toISOString();
     }
 
-    // 2. Check for overlapping shifts — query adjacent days for overnight shift detection
-    const createPrevDay = new Date(new Date(date + "T12:00:00Z").getTime() - 86400000).toISOString().slice(0, 10);
-    const createNextDay = new Date(new Date(date + "T12:00:00Z").getTime() + 86400000).toISOString().slice(0, 10);
-    const { data: overlapping } = await adminClient
-      .from("shifts")
-      .select("id")
-      .eq("employee_id", employeeId)
-      .gte("date", createPrevDay)
-      .lte("date", createNextDay)
-      .not("status", "in", '("cancelled","declined")')
-      .or(`and(scheduled_start.lt.${scheduledFinish},scheduled_finish.gt.${scheduledStart})`);
+    // 2. Fetch data for enhanced validation (parallel)
+    const shiftDate = new Date(date);
+    const dayOfWeek = shiftDate.getDay(); // 0=Sun … 6=Sat
 
-    if (overlapping && overlapping.length > 0) {
+    // Date range for existing shifts lookup (±7 days for weekly hours + rest checks)
+    const weekStart = new Date(shiftDate);
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Sunday
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    const weekStartStr = weekStart.toISOString().slice(0, 10);
+    const weekEndStr = weekEnd.toISOString().slice(0, 10);
+
+    // Adjacent days for overlap + rest period checks
+    const prevDay = new Date(new Date(date + "T12:00:00Z").getTime() - 86400000).toISOString().slice(0, 10);
+    const nextDay = new Date(new Date(date + "T12:00:00Z").getTime() + 86400000).toISOString().slice(0, 10);
+
+    const [availResult, existingShiftsResult, weekShiftsResult, leaveResult] = await Promise.all([
+      // Availability for this day
+      adminClient
+        .from("employee_availability")
+        .select("*")
+        .eq("employee_id", employeeId)
+        .eq("day_of_week", dayOfWeek)
+        .single(),
+      // Existing shifts for overlap + rest check (adjacent days)
+      adminClient
+        .from("shifts")
+        .select("id, employee_id, date, scheduled_start, scheduled_finish, status, location, location_id")
+        .eq("employee_id", employeeId)
+        .gte("date", prevDay)
+        .lte("date", nextDay)
+        .not("status", "in", '("cancelled","declined")'),
+      // Week shifts for weekly hours check
+      adminClient
+        .from("shifts")
+        .select("id, employee_id, date, scheduled_start, scheduled_finish, status")
+        .eq("employee_id", employeeId)
+        .gte("date", weekStartStr)
+        .lte("date", weekEndStr)
+        .not("status", "in", '("cancelled","declined")'),
+      // Approved leave for conflict check
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (adminClient as any)
+        .from("employee_leave")
+        .select("id, leave_type, start_date, end_date, status")
+        .eq("employee_id", employeeId)
+        .eq("status", "APPROVED")
+        .lte("start_date", date)
+        .gte("end_date", date),
+    ]);
+
+    // 3. Run enhanced validation
+    const validationInput: ShiftAssignmentInput = {
+      employeeId,
+      businessId: ctx.businessId,
+      date,
+      startTime,
+      endTime,
+      location: location || undefined,
+    };
+
+    const employeeData: EmployeeData = {
+      id: employee.id,
+      business_id: employee.business_id,
+      full_name: employee.full_name,
+      employment_status: employee.employment_status,
+    };
+
+    const availability = availResult.data || null;
+    const existingShifts: ExistingShiftData[] = existingShiftsResult.data || [];
+    const approvedLeave = leaveResult.data || [];
+    const weekShifts: ExistingShiftData[] = weekShiftsResult.data || [];
+
+    const result = validateShiftAssignment(
+      validationInput,
+      employeeData,
+      availability,
+      existingShifts,
+      approvedLeave,
+      weekShifts,
+    );
+
+    // Hard block on errors
+    if (result.errors.length > 0) {
       return NextResponse.json(
-        { error: "Employee already has an overlapping shift." },
+        { error: result.errors[0].message, issues: result.errors },
         { status: 400 }
       );
     }
 
-    // 3. Check availability (warn, don't block if overridden)
-    const shiftDate = new Date(date);
-    const dayOfWeek = shiftDate.getDay(); // 0=Sun … 6=Sat
-
-    const { data: avail } = await adminClient
-      .from("employee_availability")
-      .select("*")
-      .eq("employee_id", employeeId)
-      .eq("day_of_week", dayOfWeek)
-      .single();
-
-    let availabilityWarning = false;
-    if (!avail || !avail.is_available) {
-      availabilityWarning = true;
-    } else if (avail.start_time && avail.end_time) {
-      if (startTime < avail.start_time.substring(0, 5) || endTime > avail.end_time.substring(0, 5)) {
-        availabilityWarning = true;
-      }
-    }
-
-    if (availabilityWarning && !overrideAvailability) {
+    // Warnings: return 409 unless overridden
+    if (result.warnings.length > 0 && !overrideAvailability) {
       return NextResponse.json(
         {
           warning: true,
-          message: "Warning: Employee is not available for the full shift.",
+          message: result.warnings.map((w) => w.message).join(" "),
+          issues: result.warnings,
         },
         { status: 409 }
       );

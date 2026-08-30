@@ -336,7 +336,7 @@ async function handlePreviewEdit(shiftId: string, body: any, shift: any, adminCl
   // Fetch employee data
   const { data: employee } = await adminClient
     .from("employees")
-    .select("id, full_name, employment_status")
+    .select("id, business_id, full_name, employment_status")
     .eq("id", shift.employee_id)
     .single();
 
@@ -386,6 +386,7 @@ async function handlePreviewEdit(shiftId: string, body: any, shift: any, adminCl
 
   const input: ShiftAssignmentInput = {
     employeeId: shift.employee_id,
+    businessId: shift.business_id,
     date,
     startTime,
     endTime,
@@ -401,6 +402,8 @@ async function handlePreviewEdit(shiftId: string, body: any, shift: any, adminCl
     employee as EmployeeData,
     availability as AvailabilityData | null,
     (existingShifts || []) as ExistingShiftData[],
+    undefined,  // approvedLeave — TODO: fetch in Phase 6A integration
+    undefined,  // weekShifts
     attendance,
     shift.status
   );
@@ -454,7 +457,7 @@ async function handleUpdateShift(shiftId: string, body: any, shift: any, ctx: an
   // Re-run validation server-side (never trust the client)
   const { data: employee } = await adminClient
     .from("employees")
-    .select("id, full_name, employment_status")
+    .select("id, business_id, full_name, employment_status")
     .eq("id", shift.employee_id)
     .single();
 
@@ -510,6 +513,7 @@ async function handleUpdateShift(shiftId: string, body: any, shift: any, ctx: an
 
   const input: ShiftAssignmentInput = {
     employeeId: shift.employee_id,
+    businessId: ctx.businessId,
     date,
     startTime,
     endTime,
@@ -525,6 +529,8 @@ async function handleUpdateShift(shiftId: string, body: any, shift: any, ctx: an
     employee as EmployeeData,
     availability as AvailabilityData | null,
     (existingShifts || []) as ExistingShiftData[],
+    undefined,  // approvedLeave
+    undefined,  // weekShifts
     updateAttendance,
     shift.status
   );

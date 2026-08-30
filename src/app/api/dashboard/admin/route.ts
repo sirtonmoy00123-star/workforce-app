@@ -9,20 +9,19 @@ export async function GET() {
     const ctx = await requireAdmin();
     const adminClient = createAdminClient();
 
-    // ── Wave 1: All independent queries in parallel ──
-    const tz = await getBusinessTimezone(ctx.businessId);
-    const todayStr = utcToLocal(new Date().toISOString(), tz).date;
-
+    // ── Wave 1: Run timezone fetch + non-date queries in parallel ──
     const [
+      tz,
       { data: employees },
       { count: pendingShifts },
-      { data: todayShiftsData },
       { count: siteIssues },
       { count: proofCount, error: proofErr },
       { count: attendanceReview },
       { data: actionItems },
       { count: unreadNotifications },
     ] = await Promise.all([
+      // Timezone (needed for today's date)
+      getBusinessTimezone(ctx.businessId),
       // Employees
       adminClient
         .from("employees")
@@ -34,12 +33,6 @@ export async function GET() {
         .select("*", { count: "exact", head: true })
         .eq("business_id", ctx.businessId)
         .eq("status", "pending"),
-      // Today's shifts
-      adminClient
-        .from("shifts")
-        .select("id, status")
-        .eq("business_id", ctx.businessId)
-        .eq("date", todayStr),
       // Site issues
       adminClient
         .from("attendance_exceptions")
@@ -86,6 +79,16 @@ export async function GET() {
         .eq("target_role", "admin")
         .eq("is_read", false),
     ]);
+
+    // Now compute today's date with the timezone we fetched
+    const todayStr = utcToLocal(new Date().toISOString(), tz).date;
+
+    // Today's shifts (needs todayStr from timezone)
+    const { data: todayShiftsData } = await adminClient
+      .from("shifts")
+      .select("id, status")
+      .eq("business_id", ctx.businessId)
+      .eq("date", todayStr);
 
     // ── Derive employee-dependent values ──
     const totalEmployees = employees?.length || 0;

@@ -56,7 +56,8 @@
       "Bash(git commit -m 'Phase 6A: Smart Shift Validation + Leave Management API *)",
       "Bash(npx supabase *)",
       "Bash(git commit -m 'Fix: make rate snapshots nullable for unfilled shifts \\(migration 027\\) *)",
-      "Bash(git commit -m 'Phase 7: Pay Period & Payroll Management *)"
+      "Bash(git commit -m 'Phase 7: Pay Period & Payroll Management *)",
+      "Bash(git commit -m 'Performance: parallelize timezone fetch with dashboard queries *)"
     ]
   }
 }

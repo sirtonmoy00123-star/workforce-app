@@ -14,53 +14,62 @@ export async function GET() {
 
     const adminClient = createAdminClient();
 
-    // Upcoming shifts (pending or accepted, future dates)
     // Use business timezone so "today" matches the employee's local date
     const tz = await getBusinessTimezone(ctx.businessId);
     const todayStr = utcToLocal(new Date().toISOString(), tz).date;
 
-    const { data: upcomingShifts } = await adminClient
-      .from("shifts")
-      .select("id, date, scheduled_start, scheduled_finish, location, status")
-      .eq("employee_id", ctx.employeeId)
-      .in("status", ["pending", "accepted"])
-      .gte("date", todayStr)
-      .order("date", { ascending: true })
-      .limit(5);
+    // Run all 5 independent queries in parallel
+    const [
+      { data: upcomingShifts },
+      { data: activeAttendance },
+      { data: recentTimesheets },
+      { data: payments },
+      { data: employee },
+    ] = await Promise.all([
+      // Upcoming shifts (pending or accepted, future dates)
+      adminClient
+        .from("shifts")
+        .select("id, date, scheduled_start, scheduled_finish, location, status")
+        .eq("employee_id", ctx.employeeId)
+        .in("status", ["pending", "accepted"])
+        .gte("date", todayStr)
+        .order("date", { ascending: true })
+        .limit(5),
 
-    // Active shift (working right now) — read from work_sessions
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: activeAttendance } = await (adminClient as any)
-      .from("work_sessions")
-      .select("*, shifts!inner(id, date, scheduled_start, scheduled_finish, location)")
-      .eq("employee_id", ctx.employeeId)
-      .eq("status", "working")
-      .limit(1);
+      // Active shift (working right now) — read from work_sessions
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (adminClient as any)
+        .from("work_sessions")
+        .select("*, shifts!inner(id, date, scheduled_start, scheduled_finish, location)")
+        .eq("employee_id", ctx.employeeId)
+        .eq("status", "working")
+        .limit(1),
 
-    // Recent timesheets
-    const { data: recentTimesheets } = await adminClient
-      .from("timesheets")
-      .select("id, actual_start, worked_minutes, total_amount, status")
-      .eq("employee_id", ctx.employeeId)
-      .order("created_at", { ascending: false })
-      .limit(3);
+      // Recent timesheets
+      adminClient
+        .from("timesheets")
+        .select("id, actual_start, worked_minutes, total_amount, status")
+        .eq("employee_id", ctx.employeeId)
+        .order("created_at", { ascending: false })
+        .limit(3),
 
-    // Payment stats
-    const { data: payments } = await adminClient
-      .from("payments")
-      .select("total_amount, status")
-      .eq("employee_id", ctx.employeeId);
+      // Payment stats
+      adminClient
+        .from("payments")
+        .select("total_amount, status")
+        .eq("employee_id", ctx.employeeId),
 
-    const totalEarned = payments?.reduce((sum, p) => sum + p.total_amount, 0) || 0;
-    const totalPaid = payments?.filter((p) => p.status === "paid").reduce((sum, p) => sum + p.total_amount, 0) || 0;
+      // Employee name
+      adminClient
+        .from("employees")
+        .select("full_name")
+        .eq("id", ctx.employeeId)
+        .single(),
+    ]);
+
+    const totalEarned = payments?.reduce((sum: number, p: { total_amount: number }) => sum + p.total_amount, 0) || 0;
+    const totalPaid = payments?.filter((p: { status: string }) => p.status === "paid").reduce((sum: number, p: { total_amount: number }) => sum + p.total_amount, 0) || 0;
     const pendingPayment = totalEarned - totalPaid;
-
-    // Get employee name
-    const { data: employee } = await adminClient
-      .from("employees")
-      .select("full_name")
-      .eq("id", ctx.employeeId)
-      .single();
 
     return NextResponse.json({
       employeeName: employee?.full_name || "",

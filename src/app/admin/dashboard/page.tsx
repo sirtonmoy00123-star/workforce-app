@@ -141,12 +141,14 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     Promise.all([
       fetch("/api/dashboard/admin").then((r) => r.json()),
-      fetch("/api/admin/attention?summary=true").then((r) => r.json()),
-      fetch("/api/admin/attention?limit=10").then((r) => r.json()),
-    ]).then(([dashData, attData, attItems]) => {
+      // Single combined call replaces two separate attention fetches
+      fetch("/api/admin/attention?withSummary=true&limit=10").then((r) => r.json()),
+    ]).then(([dashData, attData]) => {
       if (!dashData.error) setStats(dashData);
-      if (!attData.error) setAttention(attData);
-      if (attItems.items) setAttentionItems(attItems.items);
+      if (!attData.error && attData.summary) {
+        setAttention(attData.summary);
+        setAttentionItems(attData.items || []);
+      }
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);

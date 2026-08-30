@@ -31,7 +31,9 @@ export async function GET(request: NextRequest) {
       }
 
       const { count } = await query;
-      return NextResponse.json({ unreadCount: count || 0 });
+      const response = NextResponse.json({ unreadCount: count || 0 });
+      response.headers.set("Cache-Control", "private, max-age=30, stale-while-revalidate=60");
+      return response;
     }
 
     // Full list

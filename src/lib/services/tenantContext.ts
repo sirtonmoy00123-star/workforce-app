@@ -77,12 +77,12 @@ export async function getCurrentBusinessContext(): Promise<BusinessContext> {
     throw new TenantError("Not authenticated. Please log in.", 401);
   }
 
-  // 2. Look up app user
+  // 2. Look up app user + active membership + business in ONE query (saves a DB round-trip)
   const adminClient = createAdminClient();
 
   const { data: appUser, error: userError } = await adminClient
     .from("users")
-    .select("id, business_id, role, account_status")
+    .select("id, business_id, role, account_status, business_members ( id, business_id, role, status, businesses ( id, status ) )")
     .eq("auth_user_id", authUser.id)
     .single();
 
@@ -94,16 +94,12 @@ export async function getCurrentBusinessContext(): Promise<BusinessContext> {
     throw new TenantError("Your account has been disabled. Contact your administrator.", 403);
   }
 
-  // 3. Look up active membership (with business join to save a roundtrip)
-  const { data: membership, error: memberError } = await adminClient
-    .from("business_members")
-    .select("id, business_id, role, status, businesses ( id, status )")
-    .eq("user_id", appUser.id)
-    .eq("status", "ACTIVE")
-    .limit(1)
-    .single();
+  // 3. Find the active membership from the joined data
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const memberships = (appUser as any).business_members as any[];
+  const membership = memberships?.find((m: { status: string }) => m.status === "ACTIVE");
 
-  if (memberError || !membership) {
+  if (!membership) {
     throw new TenantError(
       "You do not have an active membership in any business. Contact your administrator.",
       403
@@ -111,8 +107,7 @@ export async function getCurrentBusinessContext(): Promise<BusinessContext> {
   }
 
   // 4. Verify the business is active (from joined data)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const business = (membership as any).businesses;
+  const business = membership.businesses;
 
   if (!business) {
     throw new TenantError("Business not found.", 403);

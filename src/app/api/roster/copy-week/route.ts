@@ -271,7 +271,7 @@ export async function POST(request: Request) {
             scheduled_finish: schedFinish,
             location: p.location,
             instructions: p.instructions,
-            status: "pending" as const,
+            status: (body.asDraft ? "draft" : "pending") as "pending",
             created_by: ctx.userId,
           };
         });

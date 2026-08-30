@@ -22,9 +22,10 @@ export async function GET(request: Request) {
     if (ctx.role === "OWNER" || ctx.role === "ADMIN") {
       query = query.eq("business_id", ctx.businessId);
     } else {
-      // Employee only sees their own shifts
+      // Employee only sees their own non-draft shifts
       if (!ctx.employeeId) return NextResponse.json([]);
-      query = query.eq("employee_id", ctx.employeeId);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      query = query.eq("employee_id", ctx.employeeId).neq("status", "draft" as any);
     }
 
     if (startDate) query = query.gte("date", startDate);
@@ -47,35 +48,27 @@ export async function POST(request: Request) {
     const ctx = await requireAdmin();
 
     const body = await request.json();
-    const { employeeId, date, startTime, endTime, location, instructions, overrideAvailability, timezoneOffsetMinutes, requireOdometer } = body;
+    const { employeeId, date, startTime, endTime, location, instructions, overrideAvailability, timezoneOffsetMinutes, requireOdometer, isDraft } = body;
 
-    if (!employeeId || !date || !startTime || !endTime) {
+    // Draft shifts can omit employeeId (unfilled shift)
+    if (!date || !startTime || !endTime) {
       return NextResponse.json(
-        { error: "Employee, date, start time, and end time are required." },
+        { error: "Date, start time, and end time are required." },
+        { status: 400 }
+      );
+    }
+
+    // Non-draft shifts require an employee
+    if (!isDraft && !employeeId) {
+      return NextResponse.json(
+        { error: "Employee is required for non-draft shifts." },
         { status: 400 }
       );
     }
 
     const adminClient = createAdminClient();
 
-    // 1. Verify employee is active and in same business
-    const { data: employee } = await adminClient
-      .from("employees")
-      .select("*")
-      .eq("id", employeeId)
-      .eq("business_id", ctx.businessId)
-      .single();
-
-    if (!employee) {
-      return NextResponse.json({ error: "Employee not found." }, { status: 404 });
-    }
-
-    if (employee.employment_status !== "active") {
-      return NextResponse.json({ error: "Employee is not active." }, { status: 400 });
-    }
-
     // Build full timestamps using business timezone (IANA-based, DST-safe).
-    // Falls back to timezoneOffsetMinutes for backward compat if timezone lookup fails.
     let scheduledStart: string;
     let scheduledFinish: string;
     try {
@@ -95,109 +88,7 @@ export async function POST(request: Request) {
       scheduledFinish = new Date(`${date}T${endTime}:00${tzSuffix}`).toISOString();
     }
 
-    // 2. Fetch data for enhanced validation (parallel)
-    const shiftDate = new Date(date);
-    const dayOfWeek = shiftDate.getDay(); // 0=Sun … 6=Sat
-
-    // Date range for existing shifts lookup (±7 days for weekly hours + rest checks)
-    const weekStart = new Date(shiftDate);
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Sunday
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekEnd.getDate() + 6);
-    const weekStartStr = weekStart.toISOString().slice(0, 10);
-    const weekEndStr = weekEnd.toISOString().slice(0, 10);
-
-    // Adjacent days for overlap + rest period checks
-    const prevDay = new Date(new Date(date + "T12:00:00Z").getTime() - 86400000).toISOString().slice(0, 10);
-    const nextDay = new Date(new Date(date + "T12:00:00Z").getTime() + 86400000).toISOString().slice(0, 10);
-
-    const [availResult, existingShiftsResult, weekShiftsResult, leaveResult] = await Promise.all([
-      // Availability for this day
-      adminClient
-        .from("employee_availability")
-        .select("*")
-        .eq("employee_id", employeeId)
-        .eq("day_of_week", dayOfWeek)
-        .single(),
-      // Existing shifts for overlap + rest check (adjacent days)
-      adminClient
-        .from("shifts")
-        .select("id, employee_id, date, scheduled_start, scheduled_finish, status, location, location_id")
-        .eq("employee_id", employeeId)
-        .gte("date", prevDay)
-        .lte("date", nextDay)
-        .not("status", "in", '("cancelled","declined")'),
-      // Week shifts for weekly hours check
-      adminClient
-        .from("shifts")
-        .select("id, employee_id, date, scheduled_start, scheduled_finish, status")
-        .eq("employee_id", employeeId)
-        .gte("date", weekStartStr)
-        .lte("date", weekEndStr)
-        .not("status", "in", '("cancelled","declined")'),
-      // Approved leave for conflict check
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (adminClient as any)
-        .from("employee_leave")
-        .select("id, leave_type, start_date, end_date, status")
-        .eq("employee_id", employeeId)
-        .eq("status", "APPROVED")
-        .lte("start_date", date)
-        .gte("end_date", date),
-    ]);
-
-    // 3. Run enhanced validation
-    const validationInput: ShiftAssignmentInput = {
-      employeeId,
-      businessId: ctx.businessId,
-      date,
-      startTime,
-      endTime,
-      location: location || undefined,
-    };
-
-    const employeeData: EmployeeData = {
-      id: employee.id,
-      business_id: employee.business_id,
-      full_name: employee.full_name,
-      employment_status: employee.employment_status,
-    };
-
-    const availability = availResult.data || null;
-    const existingShifts: ExistingShiftData[] = existingShiftsResult.data || [];
-    const approvedLeave = leaveResult.data || [];
-    const weekShifts: ExistingShiftData[] = weekShiftsResult.data || [];
-
-    const result = validateShiftAssignment(
-      validationInput,
-      employeeData,
-      availability,
-      existingShifts,
-      approvedLeave,
-      weekShifts,
-    );
-
-    // Hard block on errors
-    if (result.errors.length > 0) {
-      return NextResponse.json(
-        { error: result.errors[0].message, issues: result.errors },
-        { status: 400 }
-      );
-    }
-
-    // Warnings: return 409 unless overridden
-    if (result.warnings.length > 0 && !overrideAvailability) {
-      return NextResponse.json(
-        {
-          warning: true,
-          message: result.warnings.map((w) => w.message).join(" "),
-          issues: result.warnings,
-        },
-        { status: 409 }
-      );
-    }
-
-    // 4. Auto-link location_id if location text matches a work_location name
+    // Auto-link location_id if location text matches a work_location name
     let locationId: string | null = null;
     if (location) {
       const { data: wl } = await adminClient
@@ -211,12 +102,132 @@ export async function POST(request: Request) {
       if (wl) locationId = wl.id;
     }
 
-    // 5. Create the shift with rate snapshots
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let employee: any = null;
+    const shiftStatus = isDraft ? "draft" : "pending";
+
+    // If employee is assigned, validate the assignment
+    if (employeeId) {
+      // 1. Verify employee is active and in same business
+      const { data: emp } = await adminClient
+        .from("employees")
+        .select("*")
+        .eq("id", employeeId)
+        .eq("business_id", ctx.businessId)
+        .single();
+
+      if (!emp) {
+        return NextResponse.json({ error: "Employee not found." }, { status: 404 });
+      }
+      employee = emp;
+
+      if (emp.employment_status !== "active") {
+        return NextResponse.json({ error: "Employee is not active." }, { status: 400 });
+      }
+
+      // 2. Fetch data for enhanced validation (parallel)
+      const shiftDate = new Date(date);
+      const dayOfWeek = shiftDate.getDay();
+
+      const weekStart = new Date(shiftDate);
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 6);
+      const weekStartStr = weekStart.toISOString().slice(0, 10);
+      const weekEndStr = weekEnd.toISOString().slice(0, 10);
+
+      const prevDay = new Date(new Date(date + "T12:00:00Z").getTime() - 86400000).toISOString().slice(0, 10);
+      const nextDay = new Date(new Date(date + "T12:00:00Z").getTime() + 86400000).toISOString().slice(0, 10);
+
+      const [availResult, existingShiftsResult, weekShiftsResult, leaveResult] = await Promise.all([
+        adminClient
+          .from("employee_availability")
+          .select("*")
+          .eq("employee_id", employeeId)
+          .eq("day_of_week", dayOfWeek)
+          .single(),
+        adminClient
+          .from("shifts")
+          .select("id, employee_id, date, scheduled_start, scheduled_finish, status, location, location_id")
+          .eq("employee_id", employeeId)
+          .gte("date", prevDay)
+          .lte("date", nextDay)
+          .not("status", "in", '("cancelled","declined")'),
+        adminClient
+          .from("shifts")
+          .select("id, employee_id, date, scheduled_start, scheduled_finish, status")
+          .eq("employee_id", employeeId)
+          .gte("date", weekStartStr)
+          .lte("date", weekEndStr)
+          .not("status", "in", '("cancelled","declined")'),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (adminClient as any)
+          .from("employee_leave")
+          .select("id, leave_type, start_date, end_date, status")
+          .eq("employee_id", employeeId)
+          .eq("status", "APPROVED")
+          .lte("start_date", date)
+          .gte("end_date", date),
+      ]);
+
+      // 3. Run enhanced validation
+      const validationInput: ShiftAssignmentInput = {
+        employeeId,
+        businessId: ctx.businessId,
+        date,
+        startTime,
+        endTime,
+        location: location || undefined,
+      };
+
+      const employeeData: EmployeeData = {
+        id: emp.id,
+        business_id: emp.business_id,
+        full_name: emp.full_name,
+        employment_status: emp.employment_status,
+      };
+
+      const availability = availResult.data || null;
+      const existingShifts: ExistingShiftData[] = existingShiftsResult.data || [];
+      const approvedLeave = leaveResult.data || [];
+      const weekShifts: ExistingShiftData[] = weekShiftsResult.data || [];
+
+      const result = validateShiftAssignment(
+        validationInput,
+        employeeData,
+        availability,
+        existingShifts,
+        approvedLeave,
+        weekShifts,
+      );
+
+      // Hard block on errors
+      if (result.errors.length > 0) {
+        return NextResponse.json(
+          { error: result.errors[0].message, issues: result.errors },
+          { status: 400 }
+        );
+      }
+
+      // Warnings: return 409 unless overridden
+      if (result.warnings.length > 0 && !overrideAvailability) {
+        return NextResponse.json(
+          {
+            warning: true,
+            message: result.warnings.map((w) => w.message).join(" "),
+            issues: result.warnings,
+          },
+          { status: 409 }
+        );
+      }
+    }
+
+    // 4. Create the shift
     const { data: shift, error } = await adminClient
       .from("shifts")
       .insert({
         business_id: ctx.businessId,
-        employee_id: employeeId,
+        employee_id: employeeId || null,
         date,
         scheduled_start: scheduledStart,
         scheduled_finish: scheduledFinish,
@@ -224,9 +235,9 @@ export async function POST(request: Request) {
         location_id: locationId,
         instructions: instructions || null,
         require_odometer: typeof requireOdometer === "boolean" ? requireOdometer : null,
-        hourly_rate_snapshot: employee.hourly_rate,
-        mileage_rate_snapshot: employee.mileage_rate,
-        status: "pending",
+        hourly_rate_snapshot: employee?.hourly_rate || null,
+        mileage_rate_snapshot: employee?.mileage_rate || null,
+        status: shiftStatus as "pending",
         created_by: ctx.userId,
       })
       .select("*")
@@ -243,11 +254,12 @@ export async function POST(request: Request) {
       shift.id,
       {
         after: {
-          employee_id: employeeId,
+          employee_id: employeeId || null,
           date,
           scheduled_start: scheduledStart,
           scheduled_finish: scheduledFinish,
           location: location || null,
+          status: shiftStatus,
         },
       }
     );

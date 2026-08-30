@@ -53,7 +53,8 @@
       "Bash(npx vitest *)",
       "Bash(git commit -m 'Dashboard QA: fix spinner CSS, API bugs, shared bottom nav *)",
       "PowerShell(git push origin main)",
-      "Bash(git commit -m 'Phase 6A: Smart Shift Validation + Leave Management API *)"
+      "Bash(git commit -m 'Phase 6A: Smart Shift Validation + Leave Management API *)",
+      "Bash(npx supabase *)"
     ]
   }
 }

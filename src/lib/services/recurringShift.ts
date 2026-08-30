@@ -3,6 +3,16 @@
  * and bulk-creates recurring shifts.
  */
 
+/** Format ISO to "9:30 am" — locale-safe for Vercel serverless */
+function fmtTime12(iso: string): string {
+  const d = new Date(iso);
+  let h = d.getUTCHours();
+  const m = d.getUTCMinutes();
+  const ampm = h >= 12 ? "pm" : "am";
+  h = h % 12 || 12;
+  return `${h}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+
 export type RecurrenceType =
   | "NONE"
   | "NEXT_WEEK"
@@ -264,14 +274,8 @@ export function buildConflictReport(
       );
 
       if (overlap) {
-        const overlapStart = new Date(overlap.scheduled_start).toLocaleTimeString(
-          "en-AU",
-          { hour: "numeric", minute: "2-digit", hour12: true }
-        );
-        const overlapEnd = new Date(overlap.scheduled_finish).toLocaleTimeString(
-          "en-AU",
-          { hour: "numeric", minute: "2-digit", hour12: true }
-        );
+        const overlapStart = fmtTime12(overlap.scheduled_start);
+        const overlapEnd = fmtTime12(overlap.scheduled_finish);
         dateStatuses.push({
           employeeId: emp.id,
           employeeName: emp.full_name,

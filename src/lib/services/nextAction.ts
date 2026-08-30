@@ -258,10 +258,12 @@ function isWithinStartWindow(scheduledStart: string): boolean {
   return now >= windowStart;
 }
 
+/** Format ISO to "9:30 am" — pure string manipulation, no locale dependency */
 function formatTimeShort(iso: string): string {
-  return new Date(iso).toLocaleTimeString("en-AU", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
+  const d = new Date(iso);
+  let h = d.getUTCHours();
+  const m = d.getUTCMinutes();
+  const ampm = h >= 12 ? "pm" : "am";
+  h = h % 12 || 12;
+  return `${h}:${String(m).padStart(2, "0")} ${ampm}`;
 }

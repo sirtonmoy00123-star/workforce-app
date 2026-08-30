@@ -4,6 +4,12 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
 
+/** Extract HH:MM from ISO timestamp — locale-safe for Vercel serverless */
+function isoToHHMM(iso: string): string {
+  const d = new Date(iso);
+  return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+}
+
 interface WorkerCandidate {
   id: string;
   full_name: string;
@@ -83,13 +89,9 @@ export async function GET(
     const shiftDate = new Date(eventDate + "T00:00:00");
     const dayOfWeek = shiftDate.getDay();
 
-    // Extract HH:MM from event times
-    const eventStartHHMM = new Date(event.start_time).toLocaleTimeString("en-AU", {
-      hour: "2-digit", minute: "2-digit", hour12: false,
-    });
-    const eventEndHHMM = new Date(event.finish_time).toLocaleTimeString("en-AU", {
-      hour: "2-digit", minute: "2-digit", hour12: false,
-    });
+    // Extract HH:MM from event times (locale-safe for Vercel serverless)
+    const eventStartHHMM = isoToHHMM(event.start_time);
+    const eventEndHHMM = isoToHHMM(event.finish_time);
 
     // 3. Get availability for the day of week
     const { data: availabilities } = await adminClient
@@ -159,12 +161,8 @@ export async function GET(
       );
 
       if (overlap) {
-        const overlapStartTime = new Date(overlap.scheduled_start).toLocaleTimeString("en-AU", {
-          hour: "2-digit", minute: "2-digit", hour12: false,
-        });
-        const overlapEndTime = new Date(overlap.scheduled_finish).toLocaleTimeString("en-AU", {
-          hour: "2-digit", minute: "2-digit", hour12: false,
-        });
+        const overlapStartTime = isoToHHMM(overlap.scheduled_start);
+        const overlapEndTime = isoToHHMM(overlap.scheduled_finish);
         results.push({
           id: emp.id,
           full_name: emp.full_name,

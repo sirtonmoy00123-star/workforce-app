@@ -36,6 +36,14 @@ function formatTime12(time24: string): string {
   return m === 0 ? `${h12} ${ampm}` : `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
 }
 
+/** Format ISO timestamp to 12h time — no locale dependency (safe on Vercel serverless) */
+function fmtIsoTime12(iso: string): string {
+  const d = new Date(iso);
+  const h = d.getUTCHours();
+  const m = d.getUTCMinutes();
+  return formatTime12(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+}
+
 export async function GET(request: Request) {
   try {
     const ctx = await requireAdmin();
@@ -138,12 +146,8 @@ export async function GET(request: Request) {
       );
 
       if (overlap) {
-        const overlapStart = formatTime12(
-          new Date(overlap.scheduled_start).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", hour12: false })
-        );
-        const overlapEnd = formatTime12(
-          new Date(overlap.scheduled_finish).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", hour12: false })
-        );
+        const overlapStart = fmtIsoTime12(overlap.scheduled_start);
+        const overlapEnd = fmtIsoTime12(overlap.scheduled_finish);
         results.push({
           id: emp.id,
           full_name: emp.full_name,

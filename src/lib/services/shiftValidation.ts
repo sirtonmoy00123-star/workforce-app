@@ -392,12 +392,14 @@ function validateTime(input: ShiftAssignmentInput, errors: ValidationIssue[]): v
 
 // ── Helpers ───────────────────────────────────────────────────
 
+/** Format ISO to "9:30 am" — locale-safe for Vercel serverless */
 function formatTimeDisplay(iso: string): string {
-  return new Date(iso).toLocaleTimeString("en-AU", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
+  const d = new Date(iso);
+  let h = d.getUTCHours();
+  const m = d.getUTCMinutes();
+  const ampm = h >= 12 ? "pm" : "am";
+  h = h % 12 || 12;
+  return `${h}:${String(m).padStart(2, "0")} ${ampm}`;
 }
 
 function calculateShiftDurationMinutes(startISO: string, endISO: string): number {

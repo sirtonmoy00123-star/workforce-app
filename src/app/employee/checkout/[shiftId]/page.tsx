@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
+import jsQR from "jsqr";
 
 type CheckoutStep = "QR_SCAN" | "GPS_VERIFY" | "SELFIE" | "SUBMITTING" | "DONE" | "ERROR";
 
@@ -59,6 +60,14 @@ export default function CheckoutPage() {
   const [selfieFile, setSelfieFile] = useState<File | null>(null);
   const [selfiePreview, setSelfiePreview] = useState<string | null>(null);
   const [manualQr, setManualQr] = useState("");
+
+  // QR camera scanning
+  const [scanning, setScanning] = useState(false);
+  const [qrError, setQrError] = useState("");
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   // Load attendance status
   useEffect(() => {
@@ -139,18 +148,94 @@ export default function CheckoutPage() {
     }
   };
 
-  // QR submit handler
-  const handleQrSubmit = () => {
-    const token = manualQr.trim();
-    if (!token) return;
-    setQrToken(token);
+  // Cleanup camera on unmount
+  useEffect(() => {
+    return () => {
+      if (scanIntervalRef.current) clearInterval(scanIntervalRef.current);
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+      }
+    };
+  }, []);
+
+  // QR camera scanning (jsQR — works on all browsers)
+  async function startQrScan() {
+    setScanning(true);
+    setQrError("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+
+      scanIntervalRef.current = setInterval(() => {
+        if (!videoRef.current || videoRef.current.readyState < 2) return;
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height, {
+          inversionAttempts: "dontInvert",
+        });
+
+        if (code && code.data) {
+          const value = code.data;
+          if (value.startsWith("WFA:CHECKIN:") || value.startsWith("WFA:DYN:")) {
+            handleQrScanned(value);
+          }
+        }
+      }, 300);
+    } catch {
+      setQrError("Unable to access camera. Please allow camera access and try again.");
+      setScanning(false);
+    }
+  }
+
+  function stopCamera() {
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current);
+      scanIntervalRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    setScanning(false);
+  }
+
+  function handleQrScanned(value: string) {
+    stopCamera();
+    setQrToken(value);
+    setQrError("");
 
     const method = data?.settings?.checkout_method || "GPS_ONLY";
     if (method === "QR_GPS" || method === "QR_GPS_SELFIE") {
       setStep("GPS_VERIFY");
     } else {
-      submitCheckout(token, null, null);
+      submitCheckout(value, null, null);
     }
+  }
+
+  // QR manual submit handler (with format validation)
+  const handleQrSubmit = () => {
+    const token = manualQr.trim();
+    if (!token) return;
+    if (!token.startsWith("WFA:CHECKIN:") && !token.startsWith("WFA:DYN:")) {
+      setQrError("Invalid QR code. It should start with WFA:CHECKIN: or WFA:DYN:");
+      return;
+    }
+    handleQrScanned(token);
   };
 
   // GPS handler
@@ -276,13 +361,54 @@ export default function CheckoutPage() {
               Scan the QR code at {data?.location?.name} to verify checkout.
             </p>
 
+            {/* Camera scanner */}
+            {!scanning ? (
+              <button
+                onClick={startQrScan}
+                className="w-full bg-indigo-600 text-white py-4 rounded-xl font-semibold text-base hover:bg-indigo-700 transition-colors mb-4"
+              >
+                📷 Open Camera to Scan
+              </button>
+            ) : (
+              <div className="mb-4">
+                <div className="relative rounded-xl overflow-hidden bg-black mb-3">
+                  <video
+                    ref={videoRef}
+                    className="w-full"
+                    playsInline
+                    muted
+                  />
+                  <canvas ref={canvasRef} className="hidden" />
+                  {/* Scanning overlay */}
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="w-48 h-48 border-2 border-white/60 rounded-lg" />
+                  </div>
+                  <div className="absolute bottom-2 left-0 right-0 text-center">
+                    <span className="bg-black/50 text-white text-xs px-3 py-1 rounded-full">
+                      Point at QR code…
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={stopCamera}
+                  className="w-full border border-gray-300 text-gray-700 py-2 rounded-xl text-sm font-medium"
+                >
+                  Stop Camera
+                </button>
+              </div>
+            )}
+
+            {qrError && (
+              <p className="text-red-600 text-sm mb-3">{qrError}</p>
+            )}
+
             <div className="border-t border-gray-200 pt-4 mt-4">
               <p className="text-sm text-gray-400 mb-2">Or enter QR code manually:</p>
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={manualQr}
-                  onChange={(e) => setManualQr(e.target.value)}
+                  onChange={(e) => { setManualQr(e.target.value); setQrError(""); }}
                   placeholder="WFA:CHECKIN:..."
                   className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm"
                 />

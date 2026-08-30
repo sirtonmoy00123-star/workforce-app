@@ -144,7 +144,7 @@ export default function FinishShiftPage() {
     }
   }
 
-  async function handleSubmit(e: React.FormEvent, forceFinish = false) {
+  async function handleSubmit(e: { preventDefault: () => void }, forceFinish = false) {
     e.preventDefault();
 
     if (odometerRequired) {
@@ -493,7 +493,7 @@ export default function FinishShiftPage() {
                 type="button"
                 onClick={(e) => {
                   setError("");
-                  handleSubmit(e as unknown as React.FormEvent, false);
+                  handleSubmit(e, false);
                 }}
                 disabled={submitting}
                 className="w-full bg-green-600 text-white rounded-lg py-2.5 text-sm font-medium disabled:opacity-50"
@@ -579,7 +579,7 @@ export default function FinishShiftPage() {
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={(e) => handleSubmit(e as unknown as React.FormEvent, true)}
+                  onClick={(e) => handleSubmit(e, true)}
                   disabled={submitting}
                   className="flex-1 bg-amber-600 text-white rounded-lg py-2.5 text-sm font-medium disabled:opacity-50"
                 >
@@ -589,7 +589,7 @@ export default function FinishShiftPage() {
                   type="button"
                   onClick={(e) => {
                     setProofWarning(null);
-                    handleSubmit(e as unknown as React.FormEvent, false);
+                    handleSubmit(e, false);
                   }}
                   disabled={submitting}
                   className="flex-1 bg-green-600 text-white rounded-lg py-2.5 text-sm font-medium disabled:opacity-50"

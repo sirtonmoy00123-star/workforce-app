@@ -53,11 +53,11 @@ Build phase-by-phase per the spec's own process:
 6. ✅ **Smart Roster Management** — Shift validation (12 checks), draft roster, roster weeks, publish flow, templates, copy week, recurring shifts (biweekly/weekdays/selected days), leave management, unfilled shifts + assign.
 7. ✅ **Pay Period & Payroll Management** — Pay periods (DRAFT→REVIEW→APPROVED→LOCKED→PAID), payroll lock freezes totals, adjustments (bonus/deduction/etc.), per-employee payment tracking, auto-transition to PAID, payroll history, audit log.
 8. ✅ **Admin Operations + Employee Experience** — Attention queue API (CRITICAL/WARNING/INFO priorities), admin dashboard redesign (Today/Roster/Timesheets/Payroll/Evidence sections), next-action engine (getNextShiftAction), employee home redesign (Today/Upcoming/Past), employee bottom nav, mobile-first cards & touch targets.
-9. **Notifications + Staffing Automation** — Types, preferences, reminders, missing check-in/out, open shifts, offer expiry.
+9. ✅ **Notifications + Staffing Automation** — Types, preferences, reminders, missing check-in/out, open shifts, offer expiry.
 10. **Security + Privacy + Audit** — Tenant review, service role audit, audit events, photo privacy, rate limiting, secrets.
 11. **Testing + CI/CD + Monitoring** — Test suite, GitHub workflow, CI checks, Vercel preview, environments, logging, health check.
 12. **Production Readiness** — Reports, export, business settings, role permissions, platform admin, DB perf, backups, architecture docs.
 
 ## Next step
 
-→ **Phase 9: Notifications + Staffing Automation.** Types, preferences, reminders, missing check-in/out, open shifts, offer expiry.
+→ **Phase 10: Security + Privacy + Audit.** Tenant review, service role audit, audit events, photo privacy, rate limiting, secrets.

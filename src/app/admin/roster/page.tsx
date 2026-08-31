@@ -1084,7 +1084,7 @@ export default function RosterPage() {
   // ─── RENDER ──────────────────────────────────────────────────
 
   return (
-    <div className="relative pb-20 md:pb-4">
+    <div className="relative pb-28 md:pb-4">
       {/* ── Header ── */}
       <div className="flex items-center justify-between mb-3">
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Weekly Roster</h1>
@@ -1508,13 +1508,13 @@ export default function RosterPage() {
       )}
 
       {/* ── Sticky + Shift Button (mobile) ── */}
-      <div className="md:hidden fixed bottom-16 left-0 right-0 p-4 bg-gradient-to-t from-gray-100 via-gray-100 to-transparent pb-safe z-30">
+      <div className="md:hidden fixed bottom-20 left-0 right-0 px-4 z-30">
         <button
           onClick={() => openCreate()}
           className="w-full bg-blue-600 text-white rounded-xl py-3.5 text-sm font-semibold
-                     hover:bg-blue-700 active:bg-blue-800 transition-colors shadow-lg shadow-blue-200"
+                     hover:bg-blue-700 active:bg-blue-800 transition-colors shadow-lg shadow-blue-600/25"
         >
-          + Shift
+          + Create Shift
         </button>
       </div>
 

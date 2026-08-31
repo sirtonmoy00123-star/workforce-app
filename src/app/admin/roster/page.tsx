@@ -1084,7 +1084,7 @@ export default function RosterPage() {
   // ─── RENDER ──────────────────────────────────────────────────
 
   return (
-    <div className="relative pb-28 md:pb-4">
+    <div className="relative pb-4">
       {/* ── Header ── */}
       <div className="flex items-center justify-between mb-3">
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Weekly Roster</h1>
@@ -1139,9 +1139,16 @@ export default function RosterPage() {
       <div className="flex items-center gap-2 mb-3 md:hidden">
         <button
           onClick={goToday}
-          className="px-4 py-2 text-sm font-medium text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50"
+          className="px-4 py-2.5 text-sm font-medium text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50"
         >
           Today
+        </button>
+        <button
+          onClick={() => openCreate()}
+          className="flex-1 bg-blue-600 text-white px-4 py-2.5 rounded-lg text-sm font-semibold
+                     hover:bg-blue-700 active:bg-blue-800 transition-colors"
+        >
+          + Create Shift
         </button>
       </div>
 
@@ -1507,16 +1514,7 @@ export default function RosterPage() {
         </>
       )}
 
-      {/* ── Sticky + Shift Button (mobile) ── */}
-      <div className="md:hidden fixed bottom-20 left-0 right-0 px-4 z-30">
-        <button
-          onClick={() => openCreate()}
-          className="w-full bg-blue-600 text-white rounded-xl py-3.5 text-sm font-semibold
-                     hover:bg-blue-700 active:bg-blue-800 transition-colors shadow-lg shadow-blue-600/25"
-        >
-          + Create Shift
-        </button>
-      </div>
+      {/* Sticky button removed — Create Shift is now inline next to Today button */}
 
       {/* ══════════════════════════════════════════════════════════
           BOTTOM SHEET

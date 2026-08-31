@@ -258,10 +258,42 @@ async function handleCreate(body: any, ctx: { businessId: string; userId: string
     );
   }
 
-  // Insert all shifts in one call (Supabase handles it atomically)
+  // ── Duplicate detection: remove shifts that already exist ──
+  // Query existing shifts for the same employees in the date range
+  const uniqueEmployeeIds = [...new Set(shiftsToInsert.map((s) => s.employee_id))];
+  const allDates = [...new Set(shiftsToInsert.map((s) => s.date))];
+  const { data: existingShifts } = await adminClient
+    .from("shifts")
+    .select("employee_id, date, scheduled_start, scheduled_finish")
+    .eq("business_id", ctx.businessId)
+    .in("employee_id", uniqueEmployeeIds)
+    .gte("date", allDates[0])
+    .lte("date", allDates[allDates.length - 1])
+    .not("status", "in", '("cancelled","declined")');
+
+  const existingSet = new Set(
+    (existingShifts || []).map(
+      (s) => `${s.employee_id}|${s.date}|${s.scheduled_start}|${s.scheduled_finish}`
+    )
+  );
+
+  const dedupedShifts = shiftsToInsert.filter(
+    (s) => !existingSet.has(`${s.employee_id}|${s.date}|${s.scheduled_start}|${s.scheduled_finish}`)
+  );
+
+  const skippedDuplicates = shiftsToInsert.length - dedupedShifts.length;
+
+  if (dedupedShifts.length === 0) {
+    return NextResponse.json(
+      { error: `All ${skippedDuplicates} shift(s) already exist. No new shifts created.` },
+      { status: 409 }
+    );
+  }
+
+  // Insert only non-duplicate shifts
   const { data: createdShifts, error } = await adminClient
     .from("shifts")
-    .insert(shiftsToInsert)
+    .insert(dedupedShifts)
     .select("id, employee_id, date, status");
 
   if (error) {
@@ -272,6 +304,7 @@ async function handleCreate(body: any, ctx: { businessId: string; userId: string
   return NextResponse.json({
     success: true,
     created: createdShifts?.length || 0,
+    skippedDuplicates,
     shifts: createdShifts,
     recurringGroupId,
   });

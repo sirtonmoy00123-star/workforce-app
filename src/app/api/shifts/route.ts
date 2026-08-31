@@ -223,7 +223,26 @@ export async function POST(request: Request) {
       }
     }
 
-    // 4. Create the shift
+    // 4. Check for exact duplicate (same employee + date + start + finish)
+    if (employeeId) {
+      const { data: dupes } = await adminClient
+        .from("shifts")
+        .select("id")
+        .eq("employee_id", employeeId)
+        .eq("date", date)
+        .eq("scheduled_start", scheduledStart)
+        .eq("scheduled_finish", scheduledFinish)
+        .not("status", "in", '("cancelled","declined")')
+        .limit(1);
+      if (dupes && dupes.length > 0) {
+        return NextResponse.json(
+          { error: "An identical shift already exists for this employee on this date and time." },
+          { status: 409 }
+        );
+      }
+    }
+
+    // 5. Create the shift
     const { data: shift, error } = await adminClient
       .from("shifts")
       .insert({

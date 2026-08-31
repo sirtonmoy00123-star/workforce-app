@@ -58,7 +58,11 @@
       "Bash(git commit -m 'Fix: make rate snapshots nullable for unfilled shifts \\(migration 027\\) *)",
       "Bash(git commit -m 'Phase 7: Pay Period & Payroll Management *)",
       "Bash(git commit -m 'Performance: parallelize timezone fetch with dashboard queries *)",
-      "Bash(git commit -m 'Fix admin photos: use requireAdmin\\(\\) to allow OWNER role *)"
+      "Bash(git commit -m 'Fix admin photos: use requireAdmin\\(\\) to allow OWNER role *)",
+      "Bash(git reset *)",
+      "Bash(git rm *)",
+      "Bash(git commit -m 'Phase 9: Notifications + Staffing Automation \\(9A-9E, 9G\\) *)",
+      "Bash(git commit -m 'Wire notifications into all remaining flows *)"
     ]
   }
 }

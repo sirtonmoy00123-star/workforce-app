@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
+import { notifyOfferReceived } from "@/lib/services/notificationService";
 
 export async function POST(
   request: Request,
@@ -152,6 +153,25 @@ export async function POST(
       },
       performed_by: ctx.userId,
     });
+
+    // 8. Fire-and-forget: notify each employee of the offer
+    for (const emp of newEmployees) {
+      const { data: empUser } = await adminClient
+        .from("employees")
+        .select("user_id")
+        .eq("id", emp.id)
+        .single();
+      if (empUser?.user_id) {
+        notifyOfferReceived({
+          businessId: ctx.businessId,
+          targetUserId: empUser.user_id,
+          employeeId: emp.id,
+          shiftDate: event.event_date,
+          location: event.location || undefined,
+          expiresAt: expiresAt || undefined,
+        }).catch(() => {});
+      }
+    }
 
     return NextResponse.json({
       success: true,

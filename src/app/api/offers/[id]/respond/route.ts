@@ -4,6 +4,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireMember, handleTenantError } from "@/lib/services/tenantContext";
+import { notifyOfferAccepted } from "@/lib/services/notificationService";
 
 export async function POST(
   request: Request,
@@ -231,7 +232,23 @@ export async function POST(
       }
     }
 
-    // 10. Audit log
+    // 10. Notify admins of acceptance (fire-and-forget)
+    // Get employee name for notification
+    const { data: empName } = await adminClient
+      .from("employees")
+      .select("full_name")
+      .eq("id", ctx.employeeId)
+      .single();
+
+    notifyOfferAccepted({
+      businessId: ctx.businessId,
+      employeeName: empName?.full_name || "Employee",
+      employeeId: ctx.employeeId,
+      shiftDate: event.event_date,
+      role: offer.role || "Worker",
+    }).catch(() => {});
+
+    // 11. Audit log
     await adminClient.from("event_audit_log").insert({
       business_id: ctx.businessId,
       event_id: event.id,

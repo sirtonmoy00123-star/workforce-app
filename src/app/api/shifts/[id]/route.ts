@@ -17,6 +17,7 @@ import { canAcceptShift, canDeclineShift, type ShiftState } from "@/lib/services
 import { getWorkSession } from "@/lib/services/workSessionService";
 import { shiftAudit } from "@/lib/services/auditService";
 import { buildShiftTimestamps, getBusinessTimezone } from "@/lib/calculations/timezone";
+import { notifyShiftUpdated, notifyShiftCancelled } from "@/lib/services/notificationService";
 
 export async function GET(
   _request: Request,
@@ -303,6 +304,24 @@ export async function DELETE(
         { error: "Failed to record the deletion. Shift was not deleted." },
         { status: 500 }
       );
+    }
+
+    // Fire-and-forget: notify employee before deletion
+    if (shift.employee_id) {
+      const { data: empForCancel } = await adminClient
+        .from("employees")
+        .select("user_id")
+        .eq("id", shift.employee_id)
+        .single();
+      if (empForCancel?.user_id) {
+        notifyShiftCancelled({
+          businessId: ctx.businessId,
+          targetUserId: empForCancel.user_id,
+          employeeId: shift.employee_id,
+          shiftId: id,
+          shiftDate: shift.date,
+        }).catch(() => {});
+      }
     }
 
     // Task proof requirements are config, not evidence — remove them with the shift.
@@ -658,6 +677,24 @@ async function handleUpdateShift(shiftId: string, body: any, shift: any, ctx: an
   if (auditError) {
     console.error("Audit log error:", auditError);
     // Don't fail the whole update for audit log errors
+  }
+
+  // Fire-and-forget: notify employee of shift update
+  if (shift.employee_id && employee) {
+    const { data: empForNotif } = await adminClient
+      .from("employees")
+      .select("user_id")
+      .eq("id", shift.employee_id)
+      .single();
+    if (empForNotif?.user_id) {
+      notifyShiftUpdated({
+        businessId: ctx.businessId,
+        targetUserId: empForNotif.user_id,
+        employeeId: shift.employee_id,
+        shiftId: shiftId,
+        changeDescription: changeNotes || changeReason || "Shift details updated",
+      }).catch(() => {});
+    }
   }
 
   return NextResponse.json({

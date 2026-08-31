@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
+import { notifyPaymentProcessed } from "@/lib/services/notificationService";
 
 export async function POST(
   request: Request,
@@ -75,6 +76,22 @@ export async function POST(
 
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+      // Fire-and-forget: notify employee of payment
+      const { data: empPay } = await adminClient
+        .from("employees")
+        .select("user_id")
+        .eq("id", employeeId)
+        .single();
+      if (empPay?.user_id) {
+        notifyPaymentProcessed({
+          businessId: ctx.businessId,
+          targetUserId: empPay.user_id,
+          employeeId,
+          amount: paidAmount,
+          period: paymentReference || "Pay period",
+        }).catch(() => {});
+      }
+
       // Check if all employees are paid → auto-transition pay period to PAID
       await checkAndTransitionToPaid(adminClient, id, ctx.businessId, ctx.userId);
 
@@ -105,6 +122,22 @@ export async function POST(
             updated_at: new Date().toISOString(),
           })
           .eq("id", item.id);
+
+        // Fire-and-forget: notify each employee
+        const { data: empBulk } = await adminClient
+          .from("employees")
+          .select("user_id")
+          .eq("id", item.employee_id)
+          .single();
+        if (empBulk?.user_id) {
+          notifyPaymentProcessed({
+            businessId: ctx.businessId,
+            targetUserId: empBulk.user_id,
+            employeeId: item.employee_id,
+            amount: item.total_payable,
+            period: paymentReference || "Pay period",
+          }).catch(() => {});
+        }
       }
 
       // Transition pay period to PAID

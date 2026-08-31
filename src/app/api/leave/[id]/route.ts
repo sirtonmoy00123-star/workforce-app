@@ -4,6 +4,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireMember, requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
+import { notifyLeaveApproved, notifyLeaveRejected } from "@/lib/services/notificationService";
 
 export async function GET(
   request: Request,
@@ -96,6 +97,35 @@ export async function PATCH(
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    // Fire-and-forget: notify employee of leave decision
+    if (updated?.employee_id) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: emp } = await (adminClient as any)
+        .from("employees")
+        .select("user_id")
+        .eq("id", updated.employee_id)
+        .single();
+
+      if (emp?.user_id) {
+        if (status === "APPROVED") {
+          notifyLeaveApproved({
+            businessId: ctx.businessId,
+            targetUserId: emp.user_id,
+            employeeId: updated.employee_id,
+            startDate: updated.start_date,
+            endDate: updated.end_date,
+          }).catch(() => {});
+        } else if (status === "REJECTED") {
+          notifyLeaveRejected({
+            businessId: ctx.businessId,
+            targetUserId: emp.user_id,
+            employeeId: updated.employee_id,
+            reason: adminNote || "No reason provided",
+          }).catch(() => {});
+        }
+      }
     }
 
     return NextResponse.json({ success: true, leave: updated });

@@ -1508,7 +1508,7 @@ export default function RosterPage() {
       )}
 
       {/* ── Sticky + Shift Button (mobile) ── */}
-      <div className="md:hidden fixed bottom-16 left-0 right-0 p-4 bg-gradient-to-t from-gray-100 via-gray-100 to-transparent pb-safe z-40">
+      <div className="md:hidden fixed bottom-16 left-0 right-0 p-4 bg-gradient-to-t from-gray-100 via-gray-100 to-transparent pb-safe z-30">
         <button
           onClick={() => openCreate()}
           className="w-full bg-blue-600 text-white rounded-xl py-3.5 text-sm font-semibold
@@ -1522,7 +1522,7 @@ export default function RosterPage() {
           BOTTOM SHEET
          ══════════════════════════════════════════════════════════ */}
       {sheetOpen && (
-        <div className="fixed inset-0 z-[60]" onClick={closeSheet}>
+        <div className="fixed inset-0 z-50" onClick={closeSheet}>
           {/* Backdrop */}
           <div className="absolute inset-0 bg-black/40" />
 
@@ -2701,7 +2701,7 @@ export default function RosterPage() {
 
       {/* Employee View selector (when in employee view mode) */}
       {viewMode === "employee" && (
-        <div className="fixed bottom-16 left-0 right-0 bg-white border-t border-gray-200 p-3 z-40 md:relative md:bottom-auto md:border-t-0 md:p-0 md:mb-4 md:mt-4">
+        <div className="fixed bottom-16 left-0 right-0 bg-white border-t border-gray-200 p-3 z-30 md:relative md:bottom-auto md:border-t-0 md:p-0 md:mb-4 md:mt-4">
           <select
             value={selectedEmployeeView || ""}
             onChange={(e) => setSelectedEmployeeView(e.target.value)}

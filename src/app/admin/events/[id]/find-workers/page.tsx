@@ -329,7 +329,7 @@ export default function FindWorkersPage() {
 
       {/* Sticky action bar */}
       {remaining > 0 && (
-        <div className="fixed bottom-16 md:bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 safe-bottom z-50">
+        <div className="fixed bottom-16 md:bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 safe-bottom z-30">
           <div className="max-w-lg mx-auto">
             {/* Mode toggle */}
             <div className="flex rounded-lg border border-gray-200 mb-3 overflow-hidden">

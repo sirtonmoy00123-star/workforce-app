@@ -65,7 +65,8 @@
       "Bash(git commit -m 'Wire notifications into all remaining flows *)",
       "Bash(git commit -m 'Mark Phase 9 complete, set next step to Phase 10 *)",
       "Bash(npx vercel *)",
-      "Bash(git commit -m 'Fix bottom nav overlapping buttons on mobile *)"
+      "Bash(git commit -m 'Fix bottom nav overlapping buttons on mobile *)",
+      "Bash(git commit -m 'Fix bottom nav z-index: nav z-40, modals z-50, sticky buttons z-30 *)"
     ]
   }
 }

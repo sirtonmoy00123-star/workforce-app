@@ -15,15 +15,18 @@ import {
 } from "@/lib/services/notificationService";
 
 export async function POST(request: NextRequest) {
-  // Auth: either CRON_SECRET header or admin session
+  // Auth: CRON_SECRET header required in production
   const cronSecret = process.env.CRON_SECRET;
   const authHeader = request.headers.get("authorization");
 
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    // If no cron secret is set, allow any call (dev mode)
-    if (cronSecret !== "dev") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // In production, CRON_SECRET must be set and must match
+  if (!cronSecret) {
+    // No secret configured — block in production, allow in dev
+    if (process.env.NODE_ENV === "production") {
+      return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 });
     }
+  } else if (authHeader !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const adminClient = createAdminClient();

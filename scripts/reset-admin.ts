@@ -24,7 +24,7 @@ async function main() {
   if (users && users.length > 0) {
     const admin = users[0];
     const { error } = await supabase.auth.admin.updateUserById(admin.auth_user_id, {
-      password: 'TempPass123!'
+      password: process.argv[2] || (() => { throw new Error('Usage: npx ts-node scripts/reset-admin.ts <new-password>'); })()
     });
     if (error) console.log('Reset error:', error.message);
     else console.log('Password reset OK for:', admin.username);

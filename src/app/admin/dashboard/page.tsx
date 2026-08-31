@@ -389,6 +389,13 @@ export default function AdminDashboardPage() {
             count={stats?.taskProofPending || 0}
             countColor="bg-green-100 text-green-700"
           />
+          <Link
+            href="/admin/photos"
+            className="flex items-center justify-between py-2.5 px-1 hover:bg-gray-50 rounded-lg transition-colors"
+          >
+            <span className="text-sm font-medium text-gray-700">📸 Manage Photos</span>
+            <ChevronRightIcon />
+          </Link>
         </div>
       </div>
 

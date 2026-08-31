@@ -2,7 +2,7 @@
 // DELETE /api/admin/photos — delete employee photos (by IDs, employee, or age)
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireRole, handleTenantError } from "@/lib/services/tenantContext";
+import { requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
 
 const BUCKETS = ["odometer-photos", "task-proof-photos", "attendance-photos"] as const;
 
@@ -21,7 +21,7 @@ interface PhotoRecord {
 
 export async function GET(request: Request) {
   try {
-    const ctx = await requireRole("ADMIN");
+    const ctx = await requireAdmin();
     const adminClient = createAdminClient();
     const url = new URL(request.url);
     const filterEmployeeId = url.searchParams.get("employeeId");
@@ -262,7 +262,7 @@ export async function GET(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const ctx = await requireRole("ADMIN");
+    const ctx = await requireAdmin();
     const adminClient = createAdminClient();
     const body = await request.json();
     const { photoIds, deleteOlderThanDays, employeeId } = body as {

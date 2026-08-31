@@ -1149,7 +1149,7 @@ export default function RosterPage() {
       <div className="bg-white rounded-lg border border-gray-200 px-4 py-3 mb-4">
         <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">This Week</div>
         <div className="flex items-center gap-4 text-sm">
-          <span className="font-semibold text-gray-900">{totalShifts} Shifts</span>
+          <span className="font-semibold text-gray-900">{totalShifts} Shift{totalShifts !== 1 ? "s" : ""}</span>
           {pendingCount > 0 ? (
             <button
               onClick={() => { setSheetContent("pending"); setSheetOpen(true); }}
@@ -2597,7 +2597,7 @@ export default function RosterPage() {
                       </button>
                       <button onClick={handleCopyWeekCreate} disabled={copyLoading || copyReady === 0}
                         className="flex-1 bg-blue-600 text-white rounded-xl py-3 text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
-                        {copyLoading ? "Copying…" : `Copy ${copyReady} Shifts`}
+                        {copyLoading ? "Copying…" : `Copy ${copyReady} Shift${copyReady !== 1 ? "s" : ""}`}
                       </button>
                     </div>
                   </>

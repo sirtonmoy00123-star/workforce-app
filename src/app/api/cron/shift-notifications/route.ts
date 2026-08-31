@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
             .select("id, employee_id, date, scheduled_start, location, status")
             .eq("business_id", business.id)
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            .in("status", ["assigned", "accepted"] as any)
+            .in("status", ["pending", "accepted"] as any)
             .gte("scheduled_start", windowStart.toISOString())
             .lte("scheduled_start", windowEnd.toISOString());
 
@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
           .select("id, employee_id, date, scheduled_start, location")
           .eq("business_id", business.id)
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .in("status", ["assigned", "accepted"] as any)
+          .in("status", ["pending", "accepted"] as any)
           .lte("scheduled_start", checkinThreshold.toISOString())
           .gte("scheduled_start", new Date(now.getTime() - 4 * 60 * 60 * 1000).toISOString()); // within 4 hours
 
@@ -149,18 +149,36 @@ export async function POST(request: NextRequest) {
         }
 
         // ── 9E: Missing Checkout ─────────────────────────
+        // Shifts stay "accepted" while a work_session is "working" —
+        // there is no "in_progress" shift status. So we find accepted
+        // shifts whose scheduled_finish has passed AND that have an
+        // active work session (status = "working").
         const checkoutThreshold = new Date(
           now.getTime() - settings.missingCheckoutAdminMinutes * 60 * 1000
         );
 
-        const { data: missedCheckouts } = await adminClient
+        const { data: overdueShifts } = await adminClient
           .from("shifts")
           .select("id, employee_id, date, scheduled_finish")
           .eq("business_id", business.id)
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .eq("status", "in_progress" as any)
+          .eq("status", "accepted")
           .lte("scheduled_finish", checkoutThreshold.toISOString())
           .gte("scheduled_finish", new Date(now.getTime() - 4 * 60 * 60 * 1000).toISOString());
+
+        // Filter to only those with an active work session
+        const missedCheckouts: typeof overdueShifts = [];
+        for (const shift of overdueShifts || []) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const { data: ws } = await (adminClient as any)
+            .from("work_sessions")
+            .select("id")
+            .eq("shift_id", shift.id)
+            .eq("status", "working")
+            .limit(1);
+          if (ws?.length) {
+            missedCheckouts.push(shift);
+          }
+        }
 
         for (const shift of missedCheckouts || []) {
           const { data: emp } = await adminClient

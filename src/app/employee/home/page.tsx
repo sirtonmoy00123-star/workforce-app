@@ -263,6 +263,7 @@ export default function EmployeeHomePage() {
         <QuickLink href="/employee/shifts" icon="📅" label="All Shifts" bg="bg-blue-50" />
         <QuickLink href="/employee/timesheets" icon="📋" label="Timesheets" bg="bg-orange-50" />
         <QuickLink href="/employee/payments" icon="💰" label="Payments" bg="bg-green-50" />
+        <QuickLink href="/employee/photos" icon="📸" label="My Photos" bg="bg-teal-50" />
       </div>
     </div>
   );

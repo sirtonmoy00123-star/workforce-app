@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 interface ProfileData {
   full_name: string;
@@ -62,6 +63,25 @@ export default function ProfilePage() {
           </div>
         </div>
       </div>
+
+      {/* Storage Management */}
+      <Link
+        href="/employee/photos"
+        className="mt-4 block bg-white rounded-xl border border-gray-200 p-4 hover:border-blue-300 transition-colors"
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-teal-50 rounded-xl flex items-center justify-center text-xl">📸</div>
+            <div>
+              <div className="text-sm font-semibold text-gray-900">Manage My Photos</div>
+              <div className="text-xs text-gray-400">View & delete old shift photos</div>
+            </div>
+          </div>
+          <svg className="w-4 h-4 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        </div>
+      </Link>
     </div>
   );
 }

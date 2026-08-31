@@ -1,0 +1,432 @@
+// GET /api/employee/photos — list employee's photos with storage usage
+// DELETE /api/employee/photos — delete selected photos
+import { NextResponse } from "next/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { requireRole, handleTenantError } from "@/lib/services/tenantContext";
+
+const BUCKETS = ["odometer-photos", "task-proof-photos", "attendance-photos"] as const;
+
+interface PhotoRecord {
+  id: string;
+  bucket: string;
+  path: string;
+  shiftId: string;
+  shiftDate: string | null;
+  type: "odometer_start" | "odometer_finish" | "task_proof" | "selfie" | "site_photo";
+  createdAt: string;
+  signedUrl: string | null;
+}
+
+export async function GET(request: Request) {
+  try {
+    const ctx = await requireRole("EMPLOYEE");
+    if (!ctx.employeeId) {
+      return NextResponse.json({ error: "Employee not found" }, { status: 404 });
+    }
+
+    const adminClient = createAdminClient();
+    const url = new URL(request.url);
+    const olderThanDays = parseInt(url.searchParams.get("olderThan") || "0");
+
+    const cutoffDate = olderThanDays > 0
+      ? new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString()
+      : null;
+
+    // 1. Get all shifts for this employee (to map shiftId → date)
+    const { data: shifts } = await adminClient
+      .from("shifts")
+      .select("id, date, status")
+      .eq("employee_id", ctx.employeeId)
+      .eq("business_id", ctx.businessId)
+      .order("date", { ascending: false });
+
+    const shiftMap = new Map<string, { date: string; status: string }>();
+    for (const s of shifts || []) {
+      shiftMap.set(s.id, { date: s.date, status: s.status });
+    }
+
+    // 2. Get odometer submissions
+    const { data: odometerSubs } = await adminClient
+      .from("odometer_submissions")
+      .select("id, shift_id, submission_type, photo_path, server_timestamp")
+      .eq("employee_id", ctx.employeeId)
+      .eq("business_id", ctx.businessId)
+      .order("server_timestamp", { ascending: false });
+
+    // 3. Get task proof submissions
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: proofSubs } = await (adminClient as any)
+      .from("task_proof_submissions")
+      .select("id, shift_id, proof_type, photo_path, server_timestamp, status")
+      .eq("employee_id", ctx.employeeId)
+      .eq("business_id", ctx.businessId)
+      .order("server_timestamp", { ascending: false });
+
+    // 4. Get attendance records with photos
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: attendanceRecords } = await (adminClient as any)
+      .from("attendance_records")
+      .select("id, shift_id, selfie_photo_path, site_photo_path, created_at")
+      .eq("employee_id", ctx.employeeId)
+      .eq("business_id", ctx.businessId)
+      .order("created_at", { ascending: false });
+
+    // 5. Build photo list
+    const photos: PhotoRecord[] = [];
+
+    // Odometer photos
+    for (const sub of odometerSubs || []) {
+      if (!sub.photo_path) continue;
+      const shift = shiftMap.get(sub.shift_id);
+      const createdAt = sub.server_timestamp;
+      if (cutoffDate && createdAt > cutoffDate) continue;
+
+      photos.push({
+        id: `odo-${sub.id}`,
+        bucket: "odometer-photos",
+        path: sub.photo_path,
+        shiftId: sub.shift_id,
+        shiftDate: shift?.date || null,
+        type: sub.submission_type === "START" ? "odometer_start" : "odometer_finish",
+        createdAt,
+        signedUrl: null,
+      });
+    }
+
+    // Task proof photos
+    for (const sub of proofSubs || []) {
+      if (!sub.photo_path) continue;
+      const shift = shiftMap.get(sub.shift_id);
+      const createdAt = sub.server_timestamp;
+      if (cutoffDate && createdAt > cutoffDate) continue;
+
+      photos.push({
+        id: `proof-${sub.id}`,
+        bucket: "task-proof-photos",
+        path: sub.photo_path,
+        shiftId: sub.shift_id,
+        shiftDate: shift?.date || null,
+        type: "task_proof",
+        createdAt,
+        signedUrl: null,
+      });
+    }
+
+    // Attendance photos (selfie + site)
+    for (const rec of attendanceRecords || []) {
+      const shift = shiftMap.get(rec.shift_id);
+      const createdAt = rec.created_at;
+
+      if (rec.selfie_photo_path) {
+        if (!cutoffDate || createdAt <= cutoffDate) {
+          photos.push({
+            id: `selfie-${rec.id}`,
+            bucket: "attendance-photos",
+            path: rec.selfie_photo_path,
+            shiftId: rec.shift_id,
+            shiftDate: shift?.date || null,
+            type: "selfie",
+            createdAt,
+            signedUrl: null,
+          });
+        }
+      }
+      if (rec.site_photo_path) {
+        if (!cutoffDate || createdAt <= cutoffDate) {
+          photos.push({
+            id: `site-${rec.id}`,
+            bucket: "attendance-photos",
+            path: rec.site_photo_path,
+            shiftId: rec.shift_id,
+            shiftDate: shift?.date || null,
+            type: "site_photo",
+            createdAt,
+            signedUrl: null,
+          });
+        }
+      }
+    }
+
+    // 6. Generate signed URLs for preview (batch, limit to first 50)
+    const previewPhotos = photos.slice(0, 50);
+    for (const photo of previewPhotos) {
+      const { data: signedData } = await adminClient.storage
+        .from(photo.bucket)
+        .createSignedUrl(photo.path, 3600);
+      photo.signedUrl = signedData?.signedUrl || null;
+    }
+
+    // 7. Calculate storage estimate (count × average size since Storage API doesn't give sizes easily)
+    const totalPhotos = photos.length;
+    const estimatedStorageMB = Math.round(totalPhotos * 0.5 * 10) / 10; // ~500KB average per photo
+
+    // Group by age
+    const now = Date.now();
+    const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+    const sixtyDaysAgo = now - 60 * 24 * 60 * 60 * 1000;
+    const ninetyDaysAgo = now - 90 * 24 * 60 * 60 * 1000;
+
+    const byAge = {
+      last30Days: photos.filter((p) => new Date(p.createdAt).getTime() > thirtyDaysAgo).length,
+      thirtyTo60Days: photos.filter((p) => {
+        const t = new Date(p.createdAt).getTime();
+        return t <= thirtyDaysAgo && t > sixtyDaysAgo;
+      }).length,
+      sixtyTo90Days: photos.filter((p) => {
+        const t = new Date(p.createdAt).getTime();
+        return t <= sixtyDaysAgo && t > ninetyDaysAgo;
+      }).length,
+      older90Days: photos.filter((p) => new Date(p.createdAt).getTime() <= ninetyDaysAgo).length,
+    };
+
+    const byType = {
+      odometer: photos.filter((p) => p.type === "odometer_start" || p.type === "odometer_finish").length,
+      taskProof: photos.filter((p) => p.type === "task_proof").length,
+      selfie: photos.filter((p) => p.type === "selfie").length,
+      sitePhoto: photos.filter((p) => p.type === "site_photo").length,
+    };
+
+    return NextResponse.json({
+      photos: previewPhotos,
+      totalPhotos,
+      estimatedStorageMB,
+      byAge,
+      byType,
+    });
+  } catch (err) {
+    return handleTenantError(err);
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const ctx = await requireRole("EMPLOYEE");
+    if (!ctx.employeeId) {
+      return NextResponse.json({ error: "Employee not found" }, { status: 404 });
+    }
+
+    const adminClient = createAdminClient();
+    const body = await request.json();
+    const { photoIds, deleteOlderThanDays } = body as {
+      photoIds?: string[];
+      deleteOlderThanDays?: number;
+    };
+
+    if (!photoIds?.length && !deleteOlderThanDays) {
+      return NextResponse.json(
+        { error: "Provide photoIds or deleteOlderThanDays." },
+        { status: 400 }
+      );
+    }
+
+    let deletedCount = 0;
+    const errors: string[] = [];
+
+    // If bulk delete by age
+    if (deleteOlderThanDays && deleteOlderThanDays > 0) {
+      const cutoff = new Date(Date.now() - deleteOlderThanDays * 24 * 60 * 60 * 1000).toISOString();
+
+      // Only delete photos from completed/approved shifts (safety check)
+      const { data: completedShifts } = await adminClient
+        .from("shifts")
+        .select("id")
+        .eq("employee_id", ctx.employeeId)
+        .eq("business_id", ctx.businessId)
+        .in("status", ["completed"]);
+
+      const completedShiftIds = (completedShifts || []).map((s) => s.id);
+
+      if (completedShiftIds.length === 0) {
+        return NextResponse.json({ deleted: 0, message: "No completed shifts found." });
+      }
+
+      // Delete odometer photos
+      const { data: oldOdometer } = await adminClient
+        .from("odometer_submissions")
+        .select("id, photo_path, shift_id")
+        .eq("employee_id", ctx.employeeId)
+        .eq("business_id", ctx.businessId)
+        .in("shift_id", completedShiftIds)
+        .lt("server_timestamp", cutoff);
+
+      for (const sub of oldOdometer || []) {
+        if (!sub.photo_path) continue;
+        const { error: delErr } = await adminClient.storage
+          .from("odometer-photos")
+          .remove([sub.photo_path]);
+        if (delErr) {
+          errors.push(`odometer ${sub.id}: ${delErr.message}`);
+        } else {
+          // Clear path in DB but keep the record
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await (adminClient as any)
+            .from("odometer_submissions")
+            .update({ photo_path: null })
+            .eq("id", sub.id);
+          deletedCount++;
+        }
+      }
+
+      // Delete task proof photos
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: oldProofs } = await (adminClient as any)
+        .from("task_proof_submissions")
+        .select("id, photo_path, shift_id")
+        .eq("employee_id", ctx.employeeId)
+        .eq("business_id", ctx.businessId)
+        .in("shift_id", completedShiftIds)
+        .lt("server_timestamp", cutoff)
+        .in("status", ["SUBMITTED", "APPROVED"]);
+
+      for (const sub of oldProofs || []) {
+        if (!sub.photo_path) continue;
+        const { error: delErr } = await adminClient.storage
+          .from("task-proof-photos")
+          .remove([sub.photo_path]);
+        if (delErr) {
+          errors.push(`proof ${sub.id}: ${delErr.message}`);
+        } else {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await (adminClient as any)
+            .from("task_proof_submissions")
+            .update({ photo_path: null })
+            .eq("id", sub.id);
+          deletedCount++;
+        }
+      }
+
+      // Delete attendance photos
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: oldAttendance } = await (adminClient as any)
+        .from("attendance_records")
+        .select("id, selfie_photo_path, site_photo_path, shift_id")
+        .eq("employee_id", ctx.employeeId)
+        .eq("business_id", ctx.businessId)
+        .in("shift_id", completedShiftIds)
+        .lt("created_at", cutoff);
+
+      for (const rec of oldAttendance || []) {
+        const toRemove: { bucket: string; path: string; field: string }[] = [];
+        if (rec.selfie_photo_path) {
+          toRemove.push({
+            bucket: "attendance-photos",
+            path: rec.selfie_photo_path,
+            field: "selfie_photo_path",
+          });
+        }
+        if (rec.site_photo_path) {
+          toRemove.push({
+            bucket: "attendance-photos",
+            path: rec.site_photo_path,
+            field: "site_photo_path",
+          });
+        }
+        for (const item of toRemove) {
+          const { error: delErr } = await adminClient.storage
+            .from(item.bucket)
+            .remove([item.path]);
+          if (delErr) {
+            errors.push(`attendance ${rec.id} ${item.field}: ${delErr.message}`);
+          } else {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            await (adminClient as any)
+              .from("attendance_records")
+              .update({ [item.field]: null })
+              .eq("id", rec.id);
+            deletedCount++;
+          }
+        }
+      }
+    }
+
+    // Individual photo deletion by IDs
+    if (photoIds?.length) {
+      for (const photoId of photoIds) {
+        const [type, id] = photoId.split("-", 2);
+
+        if (type === "odo") {
+          const { data: sub } = await adminClient
+            .from("odometer_submissions")
+            .select("id, photo_path, shift_id")
+            .eq("id", id)
+            .eq("employee_id", ctx.employeeId)
+            .single();
+
+          if (sub?.photo_path) {
+            await adminClient.storage.from("odometer-photos").remove([sub.photo_path]);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            await (adminClient as any)
+              .from("odometer_submissions")
+              .update({ photo_path: null })
+              .eq("id", id);
+            deletedCount++;
+          }
+        } else if (type === "proof") {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const { data: sub } = await (adminClient as any)
+            .from("task_proof_submissions")
+            .select("id, photo_path")
+            .eq("id", id)
+            .eq("employee_id", ctx.employeeId)
+            .single();
+
+          if (sub?.photo_path) {
+            await adminClient.storage.from("task-proof-photos").remove([sub.photo_path]);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            await (adminClient as any)
+              .from("task_proof_submissions")
+              .update({ photo_path: null })
+              .eq("id", id);
+            deletedCount++;
+          }
+        } else if (type === "selfie") {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await (adminClient as any)
+            .from("attendance_records")
+            .select("id, selfie_photo_path")
+            .eq("id", id)
+            .eq("employee_id", ctx.employeeId)
+            .single()
+            .then(async ({ data: rec }: { data: { selfie_photo_path: string | null } | null }) => {
+              if (rec?.selfie_photo_path) {
+                await adminClient.storage.from("attendance-photos").remove([rec.selfie_photo_path]);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                await (adminClient as any)
+                  .from("attendance_records")
+                  .update({ selfie_photo_path: null })
+                  .eq("id", id);
+                deletedCount++;
+              }
+            });
+        } else if (type === "site") {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await (adminClient as any)
+            .from("attendance_records")
+            .select("id, site_photo_path")
+            .eq("id", id)
+            .eq("employee_id", ctx.employeeId)
+            .single()
+            .then(async ({ data: rec }: { data: { site_photo_path: string | null } | null }) => {
+              if (rec?.site_photo_path) {
+                await adminClient.storage.from("attendance-photos").remove([rec.site_photo_path]);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                await (adminClient as any)
+                  .from("attendance_records")
+                  .update({ site_photo_path: null })
+                  .eq("id", id);
+                deletedCount++;
+              }
+            });
+        }
+      }
+    }
+
+    return NextResponse.json({
+      deleted: deletedCount,
+      errors: errors.length > 0 ? errors : undefined,
+      message: `${deletedCount} photo${deletedCount !== 1 ? "s" : ""} deleted.`,
+    });
+  } catch (err) {
+    return handleTenantError(err);
+  }
+}

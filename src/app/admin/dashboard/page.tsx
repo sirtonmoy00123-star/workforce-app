@@ -439,6 +439,13 @@ export default function AdminDashboardPage() {
             sublabel="Weekly view"
           />
           <QuickAction
+            href="/admin/notification-settings"
+            icon="🔔"
+            iconBg="bg-amber-50"
+            label="Notifications"
+            sublabel="Alert settings"
+          />
+          <QuickAction
             href="/admin/employees"
             icon="👥"
             iconBg="bg-gray-50"

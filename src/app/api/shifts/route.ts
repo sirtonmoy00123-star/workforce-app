@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireMember, requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
 import { buildShiftTimestamps, getBusinessTimezone } from "@/lib/calculations/timezone";
 import { shiftAudit } from "@/lib/services/auditService";
+import { notifyShiftAssigned } from "@/lib/services/notificationService";
 import { validateShiftAssignment, type ShiftAssignmentInput, type EmployeeData, type ExistingShiftData } from "@/lib/services/shiftValidation";
 
 export async function GET(request: Request) {
@@ -263,6 +264,19 @@ export async function POST(request: Request) {
         },
       }
     );
+
+    // Fire-and-forget: notify employee of new shift assignment
+    if (employeeId && employee && !isDraft) {
+      notifyShiftAssigned({
+        businessId: ctx.businessId,
+        targetUserId: employee.user_id,
+        employeeId,
+        shiftId: shift.id,
+        shiftDate: date,
+        startTime: scheduledStart,
+        location: location || undefined,
+      }).catch(() => {}); // best-effort, don't block response
+    }
 
     return NextResponse.json({ success: true, shift });
   } catch (err) {

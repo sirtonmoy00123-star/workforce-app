@@ -29,10 +29,23 @@ function timeAgo(dateStr: string): string {
 function getTypeIcon(type: string): string {
   switch (type) {
     case "SHIFT_UPCOMING": return "📅";
+    case "SHIFT_ASSIGNED": return "📅";
+    case "SHIFT_UPDATED": return "✏️";
+    case "SHIFT_CANCELLED": return "❌";
+    case "SHIFT_REMINDER": return "⏰";
     case "CHECKIN_REMINDER": return "⏰";
     case "MISSED_CHECKIN": return "❌";
+    case "MISSING_CHECKOUT": return "🚪";
     case "ATTENDANCE_NEEDS_REVIEW": return "⚠";
     case "ATTENDANCE_CORRECTION_RESULT": return "✅";
+    case "TIMESHEET_APPROVED": return "✅";
+    case "TIMESHEET_CORRECTION": return "✏️";
+    case "PAYMENT_PROCESSED": return "💰";
+    case "LEAVE_APPROVED": return "✅";
+    case "LEAVE_REJECTED": return "❌";
+    case "OFFER_RECEIVED": return "🎪";
+    case "OFFER_EXPIRED": return "⏰";
+    case "OPEN_SHIFT_AVAILABLE": return "🎪";
     default: return "🔔";
   }
 }

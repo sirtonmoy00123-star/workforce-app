@@ -3,6 +3,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireMember, requireAdmin, handleTenantError } from "@/lib/services/tenantContext";
+import { notifyTimesheetApproved, notifyTimesheetCorrection } from "@/lib/services/notificationService";
 
 export async function GET(
   _request: Request,
@@ -168,6 +169,25 @@ export async function PUT(
         .eq("timesheet_id", id)
         .in("status", ["pending", "submitted"]);
 
+      // Notify employee of approval (fire-and-forget)
+      if (timesheet.employee_id) {
+        const { data: emp } = await adminClient
+          .from("employees")
+          .select("user_id")
+          .eq("id", timesheet.employee_id)
+          .single();
+        if (emp?.user_id) {
+          notifyTimesheetApproved({
+            businessId: ctx.businessId,
+            targetUserId: emp.user_id,
+            employeeId: timesheet.employee_id,
+            shiftId: timesheet.shift_id,
+            timesheetId: id,
+            amount: finalTotal,
+          }).catch(() => {});
+        }
+      }
+
       return NextResponse.json({ success: true, status: "approved" });
     }
 
@@ -182,6 +202,26 @@ export async function PUT(
         .eq("id", id);
 
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+      // Notify employee of correction needed (fire-and-forget)
+      if (timesheet.employee_id) {
+        const { data: emp } = await adminClient
+          .from("employees")
+          .select("user_id")
+          .eq("id", timesheet.employee_id)
+          .single();
+        if (emp?.user_id) {
+          notifyTimesheetCorrection({
+            businessId: ctx.businessId,
+            targetUserId: emp.user_id,
+            employeeId: timesheet.employee_id,
+            shiftId: timesheet.shift_id,
+            timesheetId: id,
+            reason: body.note || "Please review your timesheet",
+          }).catch(() => {});
+        }
+      }
+
       return NextResponse.json({ success: true, status: "needs_correction" });
     }
 

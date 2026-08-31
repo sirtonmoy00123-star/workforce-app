@@ -64,7 +64,8 @@
       "Bash(git commit -m 'Phase 9: Notifications + Staffing Automation \\(9A-9E, 9G\\) *)",
       "Bash(git commit -m 'Wire notifications into all remaining flows *)",
       "Bash(git commit -m 'Mark Phase 9 complete, set next step to Phase 10 *)",
-      "Bash(npx vercel *)"
+      "Bash(npx vercel *)",
+      "Bash(git commit -m 'Fix bottom nav overlapping buttons on mobile *)"
     ]
   }
 }
